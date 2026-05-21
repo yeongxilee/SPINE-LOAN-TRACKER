@@ -1,0 +1,1410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Spine Loan Tracker</title>
+  <meta name="description" content="Spine & Endoscopy Loaner Set Tracker by Evomedic"/>
+  <meta name="theme-color" content="#1d4ed8"/>
+  <meta name="mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-capable" content="yes"/>
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+  <meta name="apple-mobile-web-app-title" content="SpineLoan"/>
+  <link rel="manifest" href="data:application/json,{
+    &quot;name&quot;:&quot;Spine Loan Tracker&quot;,
+    &quot;short_name&quot;:&quot;SpineLoan&quot;,
+    &quot;description&quot;:&quot;Spine & Endoscopy Loaner Set Tracker&quot;,
+    &quot;start_url&quot;:&quot;/&quot;,
+    &quot;display&quot;:&quot;standalone&quot;,
+    &quot;background_color&quot;:&quot;#f0f4f8&quot;,
+    &quot;theme_color&quot;:&quot;#1d4ed8&quot;,
+    &quot;icons&quot;:[{&quot;src&quot;:&quot;data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='20' fill='%231d4ed8'/><text y='.9em' font-size='80' x='10'>🦴</text></svg>&quot;,&quot;sizes&quot;:&quot;any&quot;,&quot;type&quot;:&quot;image/svg+xml&quot;}]
+  }"/>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; min-height: 100vh; }
+    .app { max-width: 480px; margin: 0 auto; min-height: 100vh; }
+    input, select, textarea { font-family: inherit; }
+    button { font-family: inherit; cursor: pointer; }
+    .spinner { display: inline-block; width: 18px; height: 18px; border: 3px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1e293b; color: white; padding: 10px 20px; border-radius: 20px; font-size: 13px; font-weight: 600; z-index: 9999; opacity: 0; transition: opacity 0.3s; pointer-events: none; }
+    .toast.show { opacity: 1; }
+  </style>
+</head>
+<body>
+<div class="app" id="app">
+  <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;flex-direction:column;gap:12px;">
+    <div style="font-size:40px">🦴</div>
+    <div style="font-size:16px;font-weight:700;color:#0f2a5e">Loading Spine Loan Tracker...</div>
+    <div class="spinner" style="border-top-color:#1d4ed8;border-color:rgba(29,78,216,0.2)"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ── CONFIG ──────────────────────────────────────────────
+const SUPABASE_URL = "https://solrhwifqlmtwgyekuok.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvbHJod2lmcWxtdHdneWVrdW9rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MTA4MDAsImV4cCI6MjA5NDM4NjgwMH0.u3L_a8IxqiBIBaiLziyK2I6-UwW9v9ftUjoSgis0cSU";
+const INVENTORY_PIN   = "1234";
+const DELETE_PASSWORD = "1234";
+
+// ── WHATSAPP NOTIFICATION (Fonnte) ──────────────────────
+const FONNTE_TOKEN  = "mgiDzDB42vySC7bri6p7";
+let NOTIFY_NUMBER = "120363407690390234@g.us"; // New notification group
+// ────────────────────────────────────────────────────────
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+async function sendWhatsApp(message) {
+  try {
+    const formData = new FormData();
+    formData.append("target", NOTIFY_NUMBER);
+    formData.append("message", message);
+    formData.append("countryCode", "60");
+    await fetch("https://api.fonnte.com/send", {
+      method: "POST",
+      headers: { "Authorization": FONNTE_TOKEN },
+      body: formData
+    });
+  } catch(e) { console.log("WhatsApp notification failed:", e.message); }
+}
+
+const COND = {
+  "Good":         { color:"#16a34a", bg:"#f0fdf4", icon:"✅" },
+  "Damaged":      { color:"#dc2626", bg:"#fef2f2", icon:"⚠️" },
+  "Quarantine": { color:"#d97706", bg:"#fffbeb", icon:"🔧" },
+};
+
+const AVAIL = {
+  "Available":   { color:"#16a34a", bg:"#f0fdf4", icon:"🟢", label:"Available" },
+  "Out":         { color:"#dc2626", bg:"#fef2f2", icon:"🔴", label:"Out" },
+  "Quarantine":  { color:"#d97706", bg:"#fffbeb", icon:"🔬", label:"Quarantine" },
+  "Parked":      { color:"#7c3aed", bg:"#f5f3ff", icon:"🅿️", label:"Parked" },
+};
+
+// ── STATE ───────────────────────────────────────────────
+let state = {
+  tab: "loans",
+  inventory: [],
+  loans: [],
+  activityLog: [],
+  loading: true,
+  invUnlocked: false,
+  search: "",
+  fStatus: "All",
+  invSearch: "",
+  invCat: "All",
+  expandedId: null,
+  photoViewId: null,
+  photoViewIdx: 0,
+  showForm: false,
+  editId: null,
+  form: emptyForm(),
+  showInvForm: false,
+  invEditKey: null,
+  invForm: emptyInv(),
+  invAvail: 'All',
+  modal: null,
+  saving: false,
+  returnModal: null, // { loanId, photos, conditions, note }
+  parkModal: null, // { setNumber, hospital, since, staffName }
+  collapsedCats: {}, // track which categories are collapsed
+  setSearch: {}, // search term per set slot
+  setDropOpen: {}, // which set dropdowns are open
+  setDropCats: {}, // which categories are expanded in set dropdown
+  disclaimerAccepted: false,
+  rectifyLogs: [], // separate rectification logs
+  selectedLogs: [], // selected log IDs for bulk delete
+  selectLogMode: false, // toggle select mode
+  repairModal: null, // { updatedForm, oldSn, newSn }
+};
+
+function emptyForm() {
+  return { sets:[{setNumber:"",description:"",brand:"",sn:"",condition:"Good"}], hospital:"", surgeon:"", pic:"", borrowDate:"", returnDate:"", status:"Out", caseNote:"", photos:[] };
+}
+function emptyInv() {
+  return { setNumber:"", description:"", brand:"", sn:"", location:"", remark:"", availability:"Available", consignmentHospital:"", consignmentSince:"" };
+}
+
+// ── TOAST ───────────────────────────────────────────────
+function toast(msg) {
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 2500);
+}
+
+// ── SUPABASE HELPERS ────────────────────────────────────
+async function loadAll() {
+  const [inv, loans, log] = await Promise.all([
+    sb.from("inventory").select("*").order("description"),
+    sb.from("loans").select("*, loan_sets(*), loan_photos(*)").order("created_at", {ascending:false}),
+    sb.from("activity_log").select("*").order("created_at", {ascending:false}).limit(50),
+  ]);
+  state.inventory = (inv.data||[]).map(i=>({ setNumber:i.set_number, description:i.description, brand:i.brand, sn:i.sn||"", location:i.location||"", remark:i.remark||"", dbId:i.id, availability:i.availability||"Available", consignmentHospital:i.consignment_hospital||"", consignmentSince:i.consignment_since||"", rectifiedBy:i.rectified_by||"", rectifiedAt:i.rectified_at||"" }));
+  state.loans = (loans.data||[]).map(l=>({
+    id: l.id, loanNumber:l.loan_number||0, hospital:l.hospital, surgeon:l.surgeon, pic:l.pic||"", borrowDate:l.borrow_date, returnDate:l.return_date||"",
+    status:l.status, caseNote:l.case_note||"",
+    sets: (l.loan_sets||[]).map(s=>({setNumber:s.set_number,description:s.description||"",brand:s.brand||"",sn:s.sn||"",condition:s.condition||"Good"})),
+    photos: (l.loan_photos||[]).map(p=>({dataUrl:p.photo_url, ts:p.taken_at||""})),
+  }));
+  state.activityLog = (log.data||[]).map(e=>({ id:e.id, ts:new Date(e.created_at).toLocaleString("en-MY"), action:e.action, hospital:e.hospital||"", surgeon:e.surgeon||"", sets:e.set_numbers||"", count:e.set_count||0, hasPhoto:e.has_photo||false }));
+  state.loading = false;
+  render();
+}
+
+async function saveLoan() {
+  state.saving = true; render();
+  const valid = state.form.sets.filter(s=>s.setNumber);
+  if (!valid.length||!state.form.hospital||!state.form.surgeon||!state.form.borrowDate) {
+    toast("Fill: Hospital, Surgeon, Date & at least 1 set"); state.saving=false; render(); return;
+  }
+  // Check for duplicate sets
+  const setNums = valid.map(s=>s.setNumber);
+  const uniqueNums = [...new Set(setNums)];
+  if (setNums.length !== uniqueNums.length) {
+    const dupes = setNums.filter((s,idx)=>setNums.indexOf(s)!==idx);
+    toast("⚠️ Duplicate sets: "+[...new Set(dupes)].join(", ")+" — please remove duplicates!");
+    state.saving=false; render(); return;
+  }
+  // Check all sets exist in inventory
+  const missingFromInv = setNums.filter(sn=>!state.inventory.find(i=>i.setNumber===sn));
+  if (missingFromInv.length>0) {
+    toast("⚠️ Sets not found in inventory: "+missingFromInv.join(", ")+" — please add them to inventory first!");
+    state.saving=false; render(); return;
+  }
+  try {
+    let loanId = state.editId;
+    if (state.editId) {
+      await sb.from("loans").update({ hospital:state.form.hospital, surgeon:state.form.surgeon, pic:state.form.pic, borrow_date:state.form.borrowDate, return_date:state.form.returnDate||null, status:state.form.status, case_note:state.form.caseNote }).eq("id", state.editId);
+      await sb.from("loan_sets").delete().eq("loan_id", state.editId);
+      await sb.from("loan_photos").delete().eq("loan_id", state.editId);
+    } else {
+      const loanCount = state.loans.length + 1;
+      const { data } = await sb.from("loans").insert({ hospital:state.form.hospital, surgeon:state.form.surgeon, pic:state.form.pic, borrow_date:state.form.borrowDate, return_date:state.form.returnDate||null, status:state.form.status, case_note:state.form.caseNote, loan_number:loanCount }).select().single();
+      loanId = data.id;
+    }
+    if (valid.length) await sb.from("loan_sets").insert(valid.map(s=>({ loan_id:loanId, set_number:s.setNumber, description:s.description, brand:s.brand, sn:s.sn, condition:s.condition })));
+    if (state.form.photos.length) await sb.from("loan_photos").insert(state.form.photos.map(p=>({ loan_id:loanId, photo_url:p.dataUrl, taken_at:p.ts })));
+    await sb.from("activity_log").insert({ action:state.editId?"Updated":"Loaned Out", hospital:state.form.hospital, surgeon:state.form.surgeon, pic:state.form.pic, set_numbers:valid.map(s=>s.setNumber).join(", "), set_count:valid.length, has_photo:state.form.photos.length>0 });
+    // Update inventory availability
+    if (!state.editId) {
+      for (const s of valid) {
+        await sb.from("inventory").update({availability:"Out"}).eq("set_number", s.setNumber);
+      }
+    }
+    toast(state.editId?"✅ Loan updated!":"✅ Loan saved!");
+    const f2 = state.form;
+    const setList = valid.map(s=>s.setNumber).join(", ");
+    if (!state.editId) {
+      const msg = `🦴 *SPINE LOAN TRACKER*\n📤 *New Loan Created*\n\n🏥 Hospital: ${f2.hospital}\n👨‍⚕️ Surgeon: ${f2.surgeon}\n👤 PIC: ${f2.pic||"-"}\n📅 Out: ${f2.borrowDate}\n🔄 Due: ${f2.returnDate||"-"}\n📦 Sets (${valid.length}): ${setList}\n📝 Note: ${f2.caseNote||"-"}\n📷 Photos: ${f2.photos.length} attached`;
+      sendWhatsApp(msg);
+    } else {
+      const msg = `🦴 *SPINE LOAN TRACKER*\n✏️ *Loan Updated*\n\n🏥 Hospital: ${f2.hospital}\n👨‍⚕️ Surgeon: ${f2.surgeon}\n📦 Sets: ${setList}`;
+      sendWhatsApp(msg);
+    }
+    state.showForm=false; state.editId=null; state.form=emptyForm();
+    await loadAll();
+  } catch(e) { toast("❌ Error saving: "+e.message); state.saving=false; render(); }
+}
+
+async function returnLoan(id, returnPhotos, conditions, returnNote, returnParkHospitals) {
+  const loan = state.loans.find(l=>l.id===id);
+  // Update status and return note
+  await sb.from("loans").update({status:"Returned", case_note: (loan.caseNote||"") + (returnNote ? " | Return note: "+returnNote : "")}).eq("id",id);
+  // Update each set condition on return and set availability
+  if (conditions) {
+    for (const set of loan.sets) {
+      if (conditions[set.setNumber]) {
+        const cond = conditions[set.setNumber];
+        await sb.from("loan_sets").update({condition: cond}).eq("loan_id", id).eq("set_number", set.setNumber);
+        // If Good → Available, if Damaged/Quarantine → Quarantine (needs fixing)
+        // Map return status directly to inventory availability
+        const newAvail = cond === "Available" ? "Available" : cond === "Parked" ? "Parked" : "Quarantine";
+        const parkHosp = (returnParkHospitals && returnParkHospitals[set.setNumber]) || null;
+        const returnUpdateData = {
+          availability: newAvail,
+          consignment_hospital: newAvail==="Parked" ? parkHosp : null,
+          consignment_since: newAvail==="Parked" ? new Date().toISOString().split("T")[0] : null
+        };
+        // Sync location field when parked on return
+        if (newAvail === "Parked" && parkHosp) {
+          returnUpdateData.location = parkHosp;
+        }
+        if (newAvail === "Available") {
+          returnUpdateData.consignment_hospital = null;
+          returnUpdateData.consignment_since = null;
+        }
+        // Save quarantine reason to remark
+        if (newAvail === "Quarantine" && returnParkHospitals) {
+          const reason = (returnParkHospitals["qr_"+set.setNumber]) || "";
+          if (reason) returnUpdateData.remark = "⚠️ Quarantine: "+reason;
+        }
+        await sb.from("inventory").update(returnUpdateData).eq("set_number", set.setNumber);
+      }
+    }
+  }
+  // Save return photos
+  if (returnPhotos && returnPhotos.length > 0) {
+    await sb.from("loan_photos").insert(returnPhotos.map(p=>({ loan_id:id, photo_url:p.dataUrl, taken_at:"RETURN: "+p.ts })));
+  }
+  await sb.from("activity_log").insert({ action:"Returned", hospital:loan.hospital, surgeon:loan.surgeon, set_numbers:loan.sets.map(s=>s.setNumber).join(", "), set_count:loan.sets.length, has_photo:(returnPhotos||[]).length>0 });
+  const condSummary = conditions ? Object.entries(conditions).map(([k,v])=>{
+    const reason = returnParkHospitals&&returnParkHospitals["qr_"+k] ? " ("+returnParkHospitals["qr_"+k]+")" : "";
+    return `${k}: ${v}${reason}`;
+  }).join(", ") : "";
+  const msg2 = `🦴 *SPINE LOAN TRACKER*\n✅ *Sets Returned*\n\n🏥 Hospital: ${loan.hospital}\n👨‍⚕️ Surgeon: ${loan.surgeon}\n📦 Sets (${loan.sets.length}): ${loan.sets.map(s=>s.setNumber).join(", ")}${condSummary?"\n🔍 Condition: "+condSummary:""}${returnNote?"\n📝 Note: "+returnNote:""}\n📷 Return photos: ${(returnPhotos||[]).length}`;
+  sendWhatsApp(msg2);
+  toast("✅ Marked as returned!"); 
+  state.returnModal = null;
+  await loadAll();
+}
+
+async function deleteLoan(id) {
+  const loan = state.loans.find(l=>l.id===id);
+  await sb.from("loans").delete().eq("id",id);
+  await sb.from("activity_log").insert({ action:"Deleted", hospital:loan.hospital, surgeon:loan.surgeon, set_numbers:loan.sets.map(s=>s.setNumber).join(", "), set_count:loan.sets.length });
+  const msg3 = `🦴 *SPINE LOAN TRACKER*\n🗑️ *Loan Record Deleted*\n\n🏥 Hospital: ${loan.hospital}\n👨‍⚕️ Surgeon: ${loan.surgeon}\n📦 Sets: ${loan.sets.map(s=>s.setNumber).join(", ")}`;
+  sendWhatsApp(msg3);
+  toast("🗑️ Loan deleted"); await loadAll();
+}
+
+async function saveInvItem(forceAvailable) {
+  const f = state.invForm;
+  if (!f.setNumber||!f.description||!f.brand) { toast("Fill Set Number, Description, Brand"); return; }
+  if (state.invEditKey) {
+    // Always show repair confirm modal when editing a Quarantine set
+    const existing = state.inventory.find(i=>i.setNumber===state.invEditKey);
+    const isQuarantine = existing && existing.availability === "Quarantine";
+    const snChanged = existing && existing.sn !== f.sn && f.sn.trim() !== "";
+
+    if (isQuarantine && !forceAvailable && forceAvailable !== false) {
+      // Show repair confirm modal
+      state.repairModal = {
+        updatedForm: {...f},
+        oldSn: existing.sn,
+        newSn: f.sn,
+        snChanged: snChanged
+      };
+      render();
+      return;
+    }
+
+    const finalAvail = forceAvailable ? "Available" : (f.availability||"Available");
+    await sb.from("inventory").update({
+      description:f.description, brand:f.brand, sn:f.sn, location:f.location,
+      remark: forceAvailable ? "" : f.remark,
+      availability: finalAvail,
+      consignment_hospital: f.consignmentHospital||null,
+      consignment_since: f.consignmentSince||null,
+      rectified_by: forceAvailable ? "Management" : null,
+      rectified_at: forceAvailable ? new Date().toISOString() : null
+    }).eq("set_number", state.invEditKey);
+
+    if (forceAvailable) {
+      await sb.from("activity_log").insert({
+        action: "Status Change",
+        hospital: "-",
+        surgeon: "Management",
+        pic: "Management",
+        set_numbers: `${state.invEditKey}: 🟢 Available (S/N updated: ${f.sn})`,
+        set_count: 1,
+        has_photo: false
+      });
+    }
+    toast(forceAvailable ? "✅ Set repaired & marked Available!" : "✅ Item updated!");
+  } else {
+    const exists = state.inventory.find(i=>i.setNumber===f.setNumber);
+    if (exists) { toast("❌ Set Number already exists!"); return; }
+    await sb.from("inventory").insert({
+      set_number:f.setNumber, description:f.description, brand:f.brand, sn:f.sn,
+      location:f.location, remark:f.remark, availability:f.availability||"Available",
+      consignment_hospital:f.consignmentHospital||null, consignment_since:f.consignmentSince||null
+    });
+    toast("✅ Item added to inventory!");
+  }
+  state.showInvForm=false; state.invEditKey=null; state.invForm=emptyInv();
+  state.repairModal=null;
+  await loadAll();
+}
+
+async function deleteInvItem(setNumber) {
+  if (!confirm(`Delete "${setNumber}" from inventory?`)) return;
+  await sb.from("inventory").delete().eq("set_number", setNumber);
+  toast("🗑️ Item removed"); await loadAll();
+}
+
+// ── RENDER ───────────────────────────────────────────────
+function render() {
+  const app = document.getElementById("app");
+  if (state.loading) return;
+
+  // Show disclaimer on first load
+  if (!state.disclaimerAccepted) {
+    app.innerHTML = `<div style="font-family:'Segoe UI',sans-serif;min-height:100vh;background:#0f172a;display:flex;align-items:center;justify-content:center;padding:20px;">
+      <div style="background:#1e293b;border-radius:16px;padding:28px;max-width:400px;width:100%;border:1px solid #dc2626;">
+        <div style="text-align:center;margin-bottom:16px;">
+          <div style="font-size:40px;">⚠️</div>
+          <div style="font-size:16px;font-weight:800;color:#ef4444;margin-top:8px;">CONFIDENTIAL SYSTEM</div>
+          <div style="font-size:12px;color:#94a3b8;margin-top:4px;">Evomedic Spine — Authorized Access Only</div>
+        </div>
+
+        <div style="background:#0f172a;border-radius:10px;padding:16px;margin-bottom:16px;border:1px solid #374151;">
+          <div style="font-size:11px;color:#f87171;font-weight:700;margin-bottom:10px;">🔒 SYSTEM SECURITY NOTICE</div>
+          <div style="font-size:11px;color:#cbd5e1;line-height:1.7;">
+            This system is for <b style="color:white;">authorized Evomedic Spine personnel only</b>. By accessing this system, you acknowledge that:
+          </div>
+          <ul style="font-size:11px;color:#cbd5e1;margin-top:8px;padding-left:16px;line-height:2;">
+            <li>All activities are <b style="color:#fbbf24;">monitored and logged</b> including IP address, device ID and access time</li>
+            <li>Screenshots, screen recordings and link sharing are <b style="color:#fbbf24;">traceable to your device</b></li>
+            <li>Any unauthorized sharing of this system or its data constitutes a <b style="color:#ef4444;">breach of company policy</b> and may result in disciplinary action</li>
+            <li>Your IP address has been <b style="color:#fbbf24;">recorded upon access</b> to this session</li>
+          </ul>
+        </div>
+
+        <div style="background:#172554;border-radius:8px;padding:10px;margin-bottom:16px;border:1px solid #1d4ed8;">
+          <div style="font-size:10px;color:#93c5fd;text-align:center;">
+            🌐 Session ID: <b style="color:white;">${Math.random().toString(36).substr(2,9).toUpperCase()}</b> &nbsp;|&nbsp; 
+            🕐 <b style="color:white;">${new Date().toLocaleString("en-MY")}</b>
+          </div>
+        </div>
+
+        <div style="font-size:11px;color:#64748b;text-align:center;margin-bottom:16px;">
+          By clicking <b style="color:white;">"I Understand & Agree"</b> you confirm you are an authorized Evomedic Spine employee and agree to the above terms.
+        </div>
+
+        <button onclick="acceptDisclaimer()" style="width:100%;padding:14px;border-radius:10px;border:none;background:linear-gradient(135deg,#1d4ed8,#0f2a5e);color:white;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">
+          ✅ I Understand & Agree — Enter System
+        </button>
+        <div style="text-align:center;margin-top:10px;font-size:10px;color:#475569;">
+          Unauthorized access will be reported to management
+        </div>
+      </div>
+    </div>`;
+    return;
+  }
+
+  const today = new Date().toISOString().split("T")[0];
+  const fmt = d => { if(!d) return "—"; const [y,m,day]=d.split("-"); return `${day}/${m}/${y}`; };
+  const daysDiff = d => Math.floor((new Date(today)-new Date(d))/86400000);
+  const isOverdue = l => l.status==="Out"&&l.returnDate&&l.returnDate<today;
+
+  const overdueList = state.loans.filter(isOverdue);
+  const allOut = state.loans.filter(l=>l.status==="Out").flatMap(l=>l.sets||[]);
+  const damaged = allOut.filter(s=>s.condition!=="Good");
+  const totalOut = state.loans.filter(l=>l.status==="Out").length;
+  const totalRet = state.loans.filter(l=>l.status==="Returned").length;
+
+  const filteredLoans = state.loans.filter(l=>{
+    const s=state.search.toLowerCase();
+    const m=l.sets?.some(st=>st.setNumber?.toLowerCase().includes(s)||st.description?.toLowerCase().includes(s))||l.hospital?.toLowerCase().includes(s)||l.surgeon?.toLowerCase().includes(s);
+    return m&&(state.fStatus==="All"||l.status===state.fStatus);
+  });
+
+  const invCats = [...new Set(state.inventory.map(i=>i.description))].sort();
+  const filteredInv = state.inventory.filter(i=>{
+    const s=state.invSearch.toLowerCase();
+    const matchSearch = i.setNumber.toLowerCase().includes(s)||i.description.toLowerCase().includes(s)||i.brand.toLowerCase().includes(s)||(i.location||"").toLowerCase().includes(s);
+    const matchCat = state.invCat==="All"||i.description===state.invCat;
+    const matchAvail = (state.invAvail||"All")==="All"||(i.availability||"Available")===state.invAvail;
+    return matchSearch&&matchCat&&matchAvail;
+  });
+
+  const S = (x="") => `padding:9px 12px;border-radius:7px;border:1px solid #cbd5e1;font-size:13px;width:100%;background:white;font-family:inherit;${x}`;
+  const B = (bg,fg,x="") => `background:${bg};color:${fg};border:none;border-radius:7px;padding:8px 14px;cursor:pointer;font-size:13px;font-weight:600;font-family:inherit;${x}`;
+
+  let html = `<div style="font-family:'Segoe UI',sans-serif;background:#f0f4f8;min-height:100vh;">`;
+
+  // Header
+  html += `<div style="background:linear-gradient(135deg,#0f2a5e,#1d4ed8);padding:14px 16px;color:white;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:22px">🦴</span>
+        <div>
+          <div style="font-size:16px;font-weight:800;">Spine Loan Tracker</div>
+          <div style="font-size:11px;opacity:0.75;">Evomedic Spine · ${state.inventory.length} sets</div>
+        </div>
+      </div>
+      ${overdueList.length>0?`<div style="background:#dc2626;border-radius:20px;padding:3px 10px;font-size:12px;font-weight:700;">⚠️ ${overdueList.length} overdue</div>`:""}
+    </div>
+  </div>`;
+
+  // Overdue banner
+  if (overdueList.length>0) {
+    html += `<div style="background:#fef2f2;border-bottom:2px solid #fecaca;padding:8px 14px;">
+      <div style="font-size:12px;font-weight:700;color:#dc2626;margin-bottom:4px;">⚠️ Overdue Alert</div>
+      ${overdueList.map(l=>`<div style="font-size:11px;color:#7f1d1d;display:flex;justify-content:space-between;padding:2px 0;">
+        <span>🔴 <b>${l.hospital}</b> — ${l.surgeon}</span>
+        <span style="color:#dc2626;font-weight:700;">${daysDiff(l.returnDate)}d overdue</span>
+      </div>`).join("")}
+    </div>`;
+  }
+
+  // Damaged banner
+  if (damaged.length>0) {
+    html += `<div style="background:#fffbeb;border-bottom:2px solid #fde68a;padding:7px 14px;">
+      <div style="font-size:11px;font-weight:700;color:#92400e;">🔧 ${damaged.length} set(s) Damaged/Repair: ${damaged.map(s=>s.setNumber).join(", ")}</div>
+    </div>`;
+  }
+
+  // Tabs
+  const tabs=[["loans","📋","Loans"],["inventory","📦","Inventory"],["dashboard","📊","Dashboard"],["history","🕓","Activity"],["rectify","🔧","Rectify"]];
+  html += `<div style="background:white;border-bottom:1px solid #e2e8f0;display:flex;">
+    ${tabs.map(([key,icon,label])=>`<button onclick="switchTab('${key}')" style="flex:1;padding:10px 2px;border:none;background:none;cursor:pointer;font-weight:${state.tab===key?700:400};font-size:11px;color:${state.tab===key?"#1d4ed8":"#64748b"};border-bottom:${state.tab===key?"3px solid #1d4ed8":"3px solid transparent"};font-family:inherit;">
+      ${icon}<br/><span style="font-size:10px;">${label}</span>
+    </button>`).join("")}
+  </div>`;
+
+  html += `<div style="padding:12px;">`;
+
+  // ── LOANS TAB ──
+  if (state.tab==="loans") {
+    html += `<div style="display:flex;gap:8px;margin-bottom:10px;">
+      <input placeholder="🔍 Search hospital, surgeon, set..." value="${state.search}" oninput="updateSearch(this.value)" style="${S("flex:1;")}"/>
+      <select onchange="updateFStatus(this.value)" style="${S("width:auto;padding:9px 8px;")}">
+        <option ${state.fStatus==="All"?"selected":""}>All</option>
+        <option ${state.fStatus==="Out"?"selected":""}>Out</option>
+        <option ${state.fStatus==="Returned"?"selected":""}>Returned</option>
+      </select>
+    </div>
+    <button onclick="toggleForm()" style="${B("#1d4ed8","white","width:100%;padding:10px;font-size:13px;margin-bottom:12px;")}">
+      ${state.showForm?"✕ Cancel":"+ New Loan"}
+    </button>`;
+
+    if (state.showForm) {
+      const f = state.form;
+      html += `<div style="background:white;border-radius:10px;padding:14px;margin-bottom:12px;border:1px solid #dbeafe;">
+        <div style="font-weight:700;font-size:13px;margin-bottom:10px;color:#0f2a5e;">${state.editId?"✏️ Edit Loan":"➕ New Loan"}</div>
+        <div style="display:flex;flex-direction:column;gap:9px;margin-bottom:14px;">
+          ${[["hospital","HOSPITAL *","e.g. Hospital Putrajaya"],["surgeon","SURGEON *","e.g. Dr. Ahmad"],["pic","PIC","e.g. Lim / Ahmad"],["caseNote","CASE NOTE","e.g. L4-L5 PSLD"]].map(([name,label,ph])=>`
+            <div><div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:2px;">${label}</div>
+            <input name="${name}" placeholder="${ph}" value="${f[name]||""}" oninput="updateFormField('${name}',this.value)" style="${S()}"/></div>
+          `).join("")}
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+            <div><div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:2px;">BORROW DATE *</div>
+            <input type="date" value="${f.borrowDate||""}" oninput="updateFormField('borrowDate',this.value)" style="${S()}"/></div>
+            <div><div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:2px;">RETURN DATE</div>
+            <input type="date" value="${f.returnDate||""}" oninput="updateFormField('returnDate',this.value)" style="${S()}"/></div>
+          </div>
+          <div><div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:2px;">STATUS</div>
+          <select onchange="updateFormField('status',this.value)" style="${S()}">
+            <option ${f.status==="Out"?"selected":""}>Out</option>
+            <option ${f.status==="Returned"?"selected":""}>Returned</option>
+          </select></div>
+        </div>
+
+        <div style="border-top:2px dashed #dbeafe;padding-top:12px;margin-bottom:14px;">
+          <div style="font-weight:700;font-size:12px;color:#0f2a5e;margin-bottom:8px;">📷 Photo Evidence (${f.photos.length})</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+            <label style="background:#0f2a5e;color:white;border:none;border-radius:8px;padding:12px 8px;cursor:pointer;font-size:12px;font-weight:700;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;">
+              <span style="font-size:22px;">📸</span><span>Take Photo</span>
+              <input type="file" accept="image/*" capture="environment" multiple onchange="handlePhoto(event)" style="display:none;"/>
+            </label>
+            <label style="background:white;color:#1d4ed8;border:2px solid #1d4ed8;border-radius:8px;padding:12px 8px;cursor:pointer;font-size:12px;font-weight:700;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;">
+              <span style="font-size:22px;">🖼️</span><span>Upload Image</span>
+              <input type="file" accept="image/*" multiple onchange="handlePhoto(event)" style="display:none;"/>
+            </label>
+          </div>
+          ${f.photos.length>0?`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+            ${f.photos.map((p,i)=>`<div style="position:relative;border-radius:8px;overflow:hidden;border:2px solid #dbeafe;aspect-ratio:1;">
+              <img src="${p.dataUrl}" style="width:100%;height:100%;object-fit:cover;"/>
+              <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.65);padding:2px 4px;font-size:8px;color:white;text-align:center;">${p.compressedKB?p.compressedKB+"KB ✓":p.ts}</div>
+              <button onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:#dc2626;border:none;border-radius:50%;width:18px;height:18px;cursor:pointer;color:white;font-size:11px;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;">×</button>
+            </div>`).join("")}
+          </div>`:`<div style="background:#f8fafc;border-radius:8px;border:2px dashed #e2e8f0;padding:14px;text-align:center;color:#94a3b8;font-size:11px;">No photos yet — tap Take Photo or Upload above</div>`}
+        </div>
+
+        <div style="border-top:2px dashed #dbeafe;padding-top:12px;margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+            <div style="font-weight:700;font-size:12px;color:#0f2a5e;">📦 Sets (${f.sets.length})</div>
+            <button onclick="addSet()" style="${B("#eff6ff","#1d4ed8","font-size:11px;padding:4px 10px;")}">+ Add Set</button>
+          </div>
+          ${f.sets.map((s,i)=>`<div style="background:#f8fafc;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid #e2e8f0;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+              <span style="font-size:11px;font-weight:700;color:#1d4ed8;">Set #${i+1}</span>
+              ${f.sets.length>1?`<button onclick="removeSet(${i})" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:16px;">×</button>`:""}
+            </div>
+            <div style="margin-bottom:6px;">
+              <!-- Selected display -->
+              <div onclick="toggleSetDrop(${i})" style="padding:9px 12px;border-radius:7px;border:1px solid ${(state.setDropOpen||{})[i]?"#1d4ed8":"#cbd5e1"};font-size:13px;background:white;cursor:pointer;display:flex;justify-content:space-between;align-items:center;min-height:40px;">
+                <span style="${s.setNumber?"font-weight:600;color:#0f2a5e;":"color:#94a3b8;"}">
+                  ${s.setNumber?(()=>{ const cfg=AVAIL[state.inventory.find(x=>x.setNumber===s.setNumber)?.availability||"Available"]||AVAIL["Available"]; return cfg.icon+" "+s.setNumber+" — "+s.description; })():"— Tap to select a set —"}
+                </span>
+                <span style="color:#94a3b8;font-size:12px;">${(state.setDropOpen||{})[i]?"▲":"▼"}</span>
+              </div>
+
+              <!-- Accordion grouped list -->
+              ${(state.setDropOpen||{})[i]?`
+              <div style="border:1px solid #dbeafe;border-top:none;border-radius:0 0 8px 8px;background:white;max-height:320px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+                ${(()=>{
+                  const cats=[...new Set(state.inventory.map(x=>x.description))].sort();
+                  return cats.map((cat,catIdx)=>{
+                    const catItems=state.inventory.filter(x=>x.description===cat);
+                    const catKey = i+"_"+catIdx;
+                    const isCatOpen=(state.setDropCats||{})[catKey]===true;
+                    const hasSelected=catItems.some(x=>x.setNumber===s.setNumber);
+                    const availCount=catItems.filter(x=>(x.availability||"Available")==="Available").length;
+                    return `
+                      <!-- Category header -->
+                      <div data-catkey="${catKey}" onclick="toggleSetDropCatByKey(event,this.dataset.catkey)" style="padding:10px 14px;background:#f8fafc;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e2e8f0;${hasSelected?"border-left:3px solid #1d4ed8;":""}">
+                        <div style="display:flex;align-items:center;gap:8px;">
+                          <span style="font-size:12px;font-weight:700;color:#0f2a5e;">${cat}</span>
+                          <span style="font-size:10px;background:#eff6ff;color:#1d4ed8;padding:1px 6px;border-radius:20px;">${catItems.length} sets</span>
+                          <span style="font-size:10px;background:#f0fdf4;color:#16a34a;padding:1px 6px;border-radius:20px;">🟢 ${availCount}</span>
+                          ${hasSelected?`<span style="font-size:10px;background:#eff6ff;color:#1d4ed8;padding:1px 6px;border-radius:20px;font-weight:700;">✓ Selected</span>`:""}
+                        </div>
+                        <span style="color:#94a3b8;font-size:11px;">${isCatOpen||hasSelected?"▲":"▶"}</span>
+                      </div>
+                      <!-- Category items -->
+                      ${(isCatOpen||hasSelected)?catItems.map(x=>{
+                        const avail=x.availability||"Available";
+                        const cfg=AVAIL[avail]||AVAIL["Available"];
+                        const isBlocked=avail!=="Available";
+                        const alreadyPicked=s.setNumber!==x.setNumber&&f.sets.some((os,oi)=>oi!==i&&os.setNumber===x.setNumber);
+                        const isDisabled=isBlocked||alreadyPicked;
+                        const isSelected=s.setNumber===x.setNumber;
+                        return `<div onclick="${isDisabled?"":"selectSet("+i+",'"+x.setNumber+"')"}" 
+                          style="padding:9px 14px 9px 28px;cursor:${isDisabled?"not-allowed":"pointer"};border-bottom:1px solid #f8fafc;display:flex;align-items:center;gap:8px;background:${isSelected?"#eff6ff":isDisabled?"#fafafa":"white"};">
+                          <span style="font-size:13px;">${cfg.icon}</span>
+                          <div style="flex:1;">
+                            <div style="font-size:12px;font-weight:${isSelected?700:500};color:${isDisabled?"#94a3b8":isSelected?"#1d4ed8":"#1e293b"};">${x.setNumber}</div>
+                            ${x.sn?`<div style="font-size:10px;color:#94a3b8;">S/N: ${x.sn}</div>`:""}
+                          </div>
+                          ${isBlocked?`<span style="font-size:10px;color:${cfg.color};font-weight:600;background:${cfg.bg};padding:1px 6px;border-radius:10px;">${cfg.icon} ${avail}</span>`:""}
+                          ${alreadyPicked?`<span style="font-size:10px;color:#94a3b8;">Already added</span>`:""}
+                          ${isSelected?`<span style="color:#1d4ed8;font-size:14px;font-weight:700;">✓</span>`:""}
+                        </div>`;
+                      }).join(""):""}
+                    `;
+                  }).join("");
+                })()}
+              </div>`:""}
+            </div>
+            ${(()=>{
+              const alreadySelected = s.setNumber && f.sets.filter((os,oi)=>oi!==i&&os.setNumber===s.setNumber).length>0;
+              if(alreadySelected) return `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:6px 10px;font-size:11px;color:#dc2626;font-weight:600;margin-bottom:6px;">⚠️ This set is already added in Set #${f.sets.findIndex((os,oi)=>oi!==i&&os.setNumber===s.setNumber)+1}! Please select a different set.</div>`;
+              return "";
+            })()}
+            ${(()=>{
+              const inv=state.inventory.find(x=>x.setNumber===s.setNumber);
+              const avail=inv?.availability||"Available";
+              if(!s.setNumber) return "";
+              if(avail==="Out") return `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:6px 10px;font-size:11px;color:#dc2626;font-weight:600;margin-bottom:6px;">🔴 This set is currently OUT with another hospital!</div>`;
+              if(avail==="Quarantine") return `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:6px;padding:6px 10px;font-size:11px;color:#d97706;font-weight:600;margin-bottom:6px;">🔧 This set is Quarantine — not available for loan!</div>`;
+              if(avail==="Parked") return `<div style="background:#f5f3ff;border:1px solid #ddd6fe;border-radius:6px;padding:6px 10px;font-size:11px;color:#7c3aed;font-weight:600;margin-bottom:6px;">🅿️ This set is Parked at ${inv?.consignmentHospital||"a hospital"} — not available for normal loans!</div>`;
+              return "";
+            })()}
+            ${s.description?`<div style="font-size:11px;color:#475569;background:white;padding:5px 8px;border-radius:5px;border:1px solid #e2e8f0;margin-bottom:6px;">📋 ${s.description} · ${s.brand}${s.sn?" · "+s.sn:""}</div>`:""}
+
+          </div>`).join("")}
+        </div>
+        <button onclick="saveLoanForm()" style="${B("#1d4ed8","white","width:100%;padding:11px;font-size:13px;")}" ${state.saving?"disabled":""}>
+          ${state.saving?`<span class="spinner"></span>`:(state.editId?"Update Loan":`Save Loan (${f.sets.filter(s=>s.setNumber).length} sets${f.photos.length>0?", "+f.photos.length+" photo(s)":""})`)}
+        </button>
+      </div>`;
+    }
+
+    if (filteredLoans.length===0) {
+      html += `<div style="background:white;border-radius:10px;padding:28px;text-align:center;color:#94a3b8;font-size:12px;">${state.loans.length===0?"No loans yet. Tap + New Loan to start.":"No records match."}</div>`;
+    } else {
+      filteredLoans.forEach(l=>{
+        const overdue=isOverdue(l); const exp=state.expandedId===l.id;
+        const c_str = overdue?"#dc2626":l.status==="Out"?"#1d4ed8":"#16a34a";
+        html += `<div style="background:white;border-radius:10px;padding:12px;margin-bottom:8px;border-left:4px solid ${c_str};box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+          <!-- Compact header -->
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+            <div style="flex:1;min-width:0;">
+              <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:3px;">
+                <span style="font-size:10px;background:#1d4ed8;color:white;padding:1px 7px;border-radius:20px;font-weight:700;">L${String(l.loanNumber||0).padStart(3,"0")}</span>
+                <span style="font-weight:700;font-size:13px;color:#0f2a5e;">🏥 ${l.hospital}</span>
+                <span style="font-size:10px;background:#eff6ff;color:#1d4ed8;padding:1px 7px;border-radius:20px;font-weight:700;">${l.sets?.length} sets</span>
+                <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:${overdue?"#fef2f2":l.status==="Out"?"#fff7ed":"#f0fdf4"};color:${overdue?"#dc2626":l.status==="Out"?"#ea580c":"#16a34a"};">
+                  ${overdue?`⚠️ ${daysDiff(l.returnDate)}d overdue`:l.status==="Out"?"📤 Out":"✅ Returned"}
+                </span>
+                ${(()=>{
+                  const sets = l.sets||[];
+                  const hasQuarantine = sets.some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Quarantine"; });
+                  const hasParked = sets.some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Parked"; });
+                  const allClear = l.status==="Returned" && sets.length>0 && sets.every(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return !inv||inv.availability==="Available"; });
+                  let badges = "";
+                  if(hasQuarantine) badges += `<span style="font-size:10px;background:#fffbeb;color:#d97706;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #fde68a;animation:pulse 1.5s infinite;">🔬 Quarantine Pending</span>`;
+                  if(hasParked) badges += `<span style="font-size:10px;background:#f5f3ff;color:#7c3aed;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #ddd6fe;">🅿️ Has Parked</span>`;
+                  if(allClear && !hasQuarantine && !hasParked) badges += `<span style="font-size:10px;background:#f0fdf4;color:#16a34a;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #bbf7d0;">✅ All Good</span>`;
+                  return badges;
+                })()}
+                ${l.photos?.length>0?`<span style="font-size:10px;background:#f0fdf4;color:#16a34a;padding:1px 7px;border-radius:20px;font-weight:700;">📷 ${l.photos.length}</span>`:""}
+              </div>
+              <div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                👨‍⚕️ ${l.surgeon}${l.pic?" · 👤 "+l.pic:""}
+              </div>
+              <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
+                <span style="font-size:11px;font-weight:700;color:${overdue?"#dc2626":"#1d4ed8"};background:${overdue?"#fef2f2":"#eff6ff"};padding:2px 8px;border-radius:20px;">📅 ${fmt(l.borrowDate)}</span>
+                ${l.returnDate?`<span style="font-size:11px;color:#64748b;">→</span><span style="font-size:11px;font-weight:700;color:${overdue?"#dc2626":"#475569"};background:${overdue?"#fef2f2":"#f1f5f9"};padding:2px 8px;border-radius:20px;">${overdue?"⚠️":""} ${fmt(l.returnDate)}</span>`:""}
+              </div>
+            </div>
+            <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
+              <button onclick="toggleExpand('${l.id}')" style="background:#f1f5f9;border:none;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:11px;color:#1d4ed8;font-family:inherit;font-weight:600;white-space:nowrap;">${exp?"▲":"▼ Sets"}</button>
+              ${l.status==="Out"?`<button onclick="doReturn('${l.id}')" style="${B("#16a34a","white","font-size:11px;padding:5px 8px;")}">Return</button>`:""}
+              <button onclick="editLoan('${l.id}')" style="${B("#f1f5f9","#475569","font-size:11px;padding:5px 8px;")}">✏️</button>
+              <button onclick="reqDelete('${l.id}')" style="${B("#fef2f2","#dc2626","font-size:11px;padding:5px 8px;")}">🗑️</button>
+            </div>
+          </div>
+
+          <!-- Expanded details -->
+          ${exp?`<div style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:8px;">
+            ${l.caseNote?`<div style="font-size:10px;color:#64748b;margin-bottom:6px;">📝 ${l.caseNote}</div>`:""}
+            ${l.photos?.length>0?`<div style="display:flex;gap:5px;margin-bottom:8px;overflow-x:auto;">
+              ${l.photos.map((p,i)=>`<div onclick="openPhotoView('${l.id}',${i})" style="flex-shrink:0;width:52px;height:52px;border-radius:7px;overflow:hidden;border:2px solid #dbeafe;cursor:pointer;">
+                <img src="${p.dataUrl}" style="width:100%;height:100%;object-fit:cover;"/>
+              </div>`).join("")}
+            </div>`:""}
+            ${l.sets?.map(s=>{
+              const invItem = state.inventory.find(i=>i.setNumber===s.setNumber);
+              const liveAvail = invItem?.availability||"Available";
+              const c = AVAIL[liveAvail]||AVAIL["Available"];
+              const rectInfo = invItem?.rectifiedBy ? `<div style="font-size:9px;color:#16a34a;margin-top:1px;">✅ Fixed by ${invItem.rectifiedBy}${invItem.rectifiedAt?" on "+new Date(invItem.rectifiedAt).toLocaleDateString("en-MY"):""}</div>` : "";
+              return `<div style="padding:4px 0;border-bottom:1px solid #f8fafc;">
+                <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">
+                  <span style="color:#1d4ed8;font-weight:600;min-width:80px;">${s.setNumber}</span>
+                  <span style="color:#64748b;flex:1;margin-left:6px;font-size:10px;">${s.description}</span>
+                  <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:${c.bg};color:${c.color};border:1px solid ${c.color}44;">${c.icon} ${c.label}</span>
+                </div>
+                ${rectInfo}
+              </div>`;
+            }).join("")}
+          </div>`:""}
+        </div>`;
+      });
+    }
+  }
+
+  // ── RECTIFY TAB ──
+  if (state.tab==="rectify") {
+    const rectLogs = state.activityLog.filter(e=>e.action==="Status Change");
+    const selMode = state.selectLogMode;
+    const selCount = state.selectedLogs.length;
+    const allSelected = rectLogs.length>0 && selCount===rectLogs.length;
+
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div style="font-weight:700;font-size:13px;color:#0f172a;">🔧 Rectification Log (${rectLogs.length})</div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        ${rectLogs.length>0?`<button onclick="exportRectifyCSV()" style="padding:5px 12px;border-radius:20px;border:1px solid #16a34a;background:#f0fdf4;color:#16a34a;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">📥 Export</button>`:""}
+        ${selMode&&selCount>0?`<button onclick="reqDeleteSelectedLogs()" style="padding:5px 12px;border-radius:20px;border:none;background:#dc2626;color:white;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">🗑️ Delete (${selCount})</button>`:""}
+        ${rectLogs.length>0?`<button onclick="toggleLogSelectMode()" style="padding:5px 12px;border-radius:20px;border:1px solid ${selMode?"#dc2626":"#cbd5e1"};background:${selMode?"#fef2f2":"white"};color:${selMode?"#dc2626":"#64748b"};font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">${selMode?"✕ Cancel":"☑️ Select"}</button>`:""}
+      </div>
+    </div>`;
+
+    if (selMode && rectLogs.length>0) {
+      html += '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button onclick="toggleSelectAll()" style="padding:3px 10px;border-radius:20px;border:1px solid #cbd5e1;background:white;color:#64748b;font-size:11px;cursor:pointer;font-family:inherit;">'+(allSelected?"☑️ Deselect All":"☐ Select All")+"</button></div>";
+    }
+
+    if (rectLogs.length===0) {
+      html += `<div style="background:white;border-radius:10px;padding:28px;text-align:center;color:#94a3b8;font-size:12px;">No rectification records yet.</div>`;
+    } else {
+      rectLogs.forEach(e=>{
+        const isSelected = state.selectedLogs.includes(e.id);
+        html += `<div onclick="${selMode?`toggleLogSelect('${e.id}')`:`''`}" style="background:${isSelected?"#fef2f2":"white"};border-radius:9px;padding:10px 12px;margin-bottom:7px;border-left:3px solid #16a34a;border:${isSelected?"1.5px solid #fca5a5":"1px solid transparent"};box-shadow:0 1px 2px rgba(0,0,0,0.05);cursor:${selMode?"pointer":"default"};">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:3px;">
+            <div style="display:flex;align-items:center;gap:8px;flex:1;">
+              ${selMode?`<div style="width:18px;height:18px;border-radius:4px;border:2px solid ${isSelected?"#dc2626":"#cbd5e1"};background:${isSelected?"#dc2626":"white"};display:flex;align-items:center;justify-content:center;flex-shrink:0;">${isSelected?'<span style="color:white;font-size:11px;font-weight:700;">✓</span>':''}</div>`:""}
+              <span style="font-size:12px;font-weight:700;color:#0f172a;">🔄 ${e.sets}</span>
+            </div>
+            <span style="font-size:10px;color:#94a3b8;flex-shrink:0;margin-left:6px;">${e.ts}</span>
+          </div>
+          <div style="font-size:11px;color:#16a34a;font-weight:600;${selMode?"margin-left:26px":""}">👤 Rectified by: ${e.surgeon||"-"}</div>
+        </div>`;
+      });
+    }
+  }
+
+  // ── INVENTORY TAB ──
+  if (state.tab==="inventory") {
+    html += `<div style="display:flex;gap:8px;margin-bottom:10px;">
+      <input placeholder="🔍 Search..." value="${state.invSearch}" oninput="updateInvSearch(this.value)" style="${S("flex:1;")}"/>
+      <select onchange="updateInvCat(this.value)" style="${S("width:auto;padding:9px 8px;")}">
+        <option value="All" ${state.invCat==="All"?"selected":""}>All</option>
+        ${invCats.map(c=>`<option value="${c}" ${state.invCat===c?"selected":""}>${c}</option>`).join("")}
+      </select>
+    </div>
+    <button onclick="toggleInvForm()" style="${B("#1d4ed8","white","width:100%;padding:10px;font-size:13px;margin-bottom:10px;")}">
+      ${state.showInvForm?"✕ Cancel":(state.invUnlocked?"🔓 Add New Set":"🔒 Add New Set")}
+    </button>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px;">
+      ${Object.entries(AVAIL).map(([key,cfg])=>{
+        const count=state.inventory.filter(i=>(i.availability||"Available")===key).length;
+        return `<div onclick="updateInvAvail('${key}')" style="background:${cfg.bg};border-radius:10px;padding:10px 4px;text-align:center;border:2px solid ${(state.invAvail||'All')===key?cfg.color:cfg.color+'44'};cursor:pointer;box-shadow:${(state.invAvail||'All')===key?"0 2px 8px "+cfg.color+"44":"none"};">
+          <div style="font-size:18px;">${cfg.icon}</div>
+          <div style="font-size:20px;font-weight:800;color:${cfg.color};">${count}</div>
+          <div style="font-size:9px;color:${cfg.color};font-weight:700;letter-spacing:0.3px;">${cfg.label}</div>
+        </div>`;
+      }).join("")}
+    </div>
+    <div style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap;">
+      <button onclick="updateInvAvail('All')" style="padding:4px 10px;border-radius:20px;border:1px solid ${(state.invAvail||'All')==='All'?'#1d4ed8':'#e2e8f0'};background:${(state.invAvail||'All')==='All'?'#eff6ff':'white'};color:${(state.invAvail||'All')==='All'?'#1d4ed8':'#64748b'};font-size:11px;font-weight:${(state.invAvail||'All')==='All'?700:400};cursor:pointer;font-family:inherit;">All</button>
+      ${Object.entries(AVAIL).map(([key,cfg])=>`<button onclick="updateInvAvail('${key}')" style="padding:5px 12px;border-radius:20px;border:1.5px solid ${(state.invAvail||'All')===key?cfg.color:'#e2e8f0'};background:${(state.invAvail||'All')===key?cfg.bg:'white'};color:${(state.invAvail||'All')===key?cfg.color:'#64748b'};font-size:12px;font-weight:${(state.invAvail||'All')===key?700:500};cursor:pointer;font-family:inherit;">${cfg.icon} ${cfg.label}</button>`).join("")}
+    </div>`;
+
+    if (state.showInvForm) {
+      const f = state.invForm;
+      html += `<div style="background:white;border-radius:10px;padding:14px;margin-bottom:12px;border:1px solid #dbeafe;">
+        <div style="font-weight:700;font-size:13px;margin-bottom:10px;color:#0f2a5e;">${state.invEditKey?"✏️ Edit Item":"➕ Add New Item"}</div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${[["setNumber","Set Number *","e.g. PSLD14"],["description","Description *","e.g. PSLD (With Hankill)"],["brand","Brand *","e.g. Maxmore"],["sn","Serial No.","e.g. I8623002"],["location","Location","e.g. Office / Penang"],["remark","Remark","e.g. Dr Chang Set"]].map(([name,label,ph])=>`
+            <div><div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:2px;">${label}</div>
+            <input name="${name}" placeholder="${ph}" value="${f[name]||""}" oninput="updateInvForm('${name}',this.value)" ${state.invEditKey&&name==="setNumber"?"readonly":""} style="${S(state.invEditKey&&name==="setNumber"?"background:#f8fafc;color:#94a3b8;":"")}"/></div>
+          `).join("")}
+          <button onclick="saveInv()" style="${B("#1d4ed8","white","padding:10px;font-size:13px;")}">
+            ${state.invEditKey?"Update Item":"Add to Inventory"}
+          </button>
+        </div>
+      </div>`;
+    }
+
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+      <div style="font-size:11px;color:#64748b;font-weight:600;">Showing ${filteredInv.length} of ${state.inventory.length} items</div>
+      ${state.invUnlocked?`<button onclick="lockInv()" style="background:#fef2f2;color:#dc2626;border:none;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-weight:700;font-family:inherit;">🔒 Lock</button>`:`<div style="font-size:10px;color:#94a3b8;">🔒 Locked — view only</div>`}
+    </div>`;
+
+    // Group by category with collapse/expand
+    const cats = [...new Set(filteredInv.map(i=>i.description))].sort();
+
+    if (filteredInv.length === 0) {
+      html += `<div style="background:white;border-radius:10px;padding:28px;text-align:center;color:#94a3b8;font-size:12px;">No items found.</div>`;
+    } else {
+      cats.forEach(cat => {
+        const catItems = filteredInv.filter(i=>i.description===cat);
+        const isCollapsed = state.collapsedCats[cat] === true;
+        const availCount = catItems.filter(i=>(i.availability||"Available")==="Available").length;
+        const outCount = catItems.filter(i=>i.availability==="Out").length;
+        const quarCount = catItems.filter(i=>i.availability==="Quarantine").length;
+        const parkCount = catItems.filter(i=>i.availability==="Parked").length;
+        const safeCat = cat.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+
+        html += `<div style="margin-bottom:8px;">
+          <div onclick="toggleCat('${safeCat}')" style="background:white;border-radius:${isCollapsed?"10px":"10px 10px 0 0"};padding:11px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border:1px solid #e2e8f0;">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+              <span style="font-weight:700;font-size:13px;color:#0f2a5e;">${cat}</span>
+              <span style="font-size:11px;background:#f1f5f9;color:#475569;padding:1px 8px;border-radius:20px;font-weight:600;">${catItems.length} sets</span>
+              ${availCount>0?`<span style="font-size:10px;background:#f0fdf4;color:#16a34a;padding:1px 7px;border-radius:20px;font-weight:700;">🟢 ${availCount}</span>`:""}
+              ${outCount>0?`<span style="font-size:10px;background:#fef2f2;color:#dc2626;padding:1px 7px;border-radius:20px;font-weight:700;">🔴 ${outCount}</span>`:""}
+              ${quarCount>0?`<span style="font-size:10px;background:#fffbeb;color:#d97706;padding:1px 7px;border-radius:20px;font-weight:700;">🔬 ${quarCount}</span>`:""}
+              ${parkCount>0?`<span style="font-size:10px;background:#f5f3ff;color:#7c3aed;padding:1px 7px;border-radius:20px;font-weight:700;">🅿️ ${parkCount}</span>`:""}
+            </div>
+            <span style="font-size:14px;color:#94a3b8;font-weight:700;">${isCollapsed?"▶":"▼"}</span>
+          </div>`;
+
+        if (!isCollapsed) {
+          html += `<div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px;overflow:hidden;">`;
+          catItems.forEach((item, idx) => {
+            const itemAvail = item.availability||"Available";
+            const itemCfg = AVAIL[itemAvail]||AVAIL["Available"];
+            html += `<div style="background:white;padding:10px 12px;border-left:4px solid ${itemCfg.color};${idx<catItems.length-1?"border-bottom:1px solid #f1f5f9;":""}">
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;">
+                <div style="flex:1;">
+                  <div style="display:flex;align-items:center;gap:5px;margin-bottom:3px;flex-wrap:wrap;">
+                    <span style="font-size:10px;background:#eff6ff;color:#1d4ed8;padding:1px 6px;border-radius:20px;font-weight:700;">${item.setNumber}</span>
+                    <span style="font-size:10px;background:#f1f5f9;color:#475569;padding:1px 6px;border-radius:20px;">${item.brand}</span>
+                    <span style="font-size:11px;background:${itemCfg.bg};color:${itemCfg.color};padding:3px 10px;border-radius:20px;font-weight:800;border:1.5px solid ${itemCfg.color}44;">${itemCfg.icon} ${itemCfg.label}</span>
+                    ${item.consignmentHospital?`<span style="font-size:10px;background:#f5f3ff;color:#7c3aed;padding:1px 6px;border-radius:20px;">📍 ${item.consignmentHospital}</span>`:""}
+                  </div>
+                  <div style="font-size:11px;color:#94a3b8;display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
+                    ${item.sn?`<span>🔖 ${item.sn}</span>`:""}
+                    ${item.location&&!item.consignmentHospital?`<span>📍 ${item.location}</span>`:""}
+                    ${item.remark?`<span>📝 ${item.remark}</span>`:""}
+                  </div>
+                  <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px;">
+                    ${itemAvail!=="Out"?`
+                      <button onclick="quickStatus('${item.setNumber}','${itemAvail}')" style="padding:4px 12px;border-radius:20px;border:1px solid #1d4ed8;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">🔄 Change Status</button>
+                    `:`<span style="font-size:10px;color:#94a3b8;font-style:italic;">Auto-managed by loan system</span>`}
+                  </div>
+                </div>
+                <div style="display:flex;flex-direction:column;gap:4px;margin-left:6px;align-items:flex-end;">
+                  <button onclick="reqEditInv('${item.setNumber}')" style="${B("#f1f5f9","#475569","font-size:11px;padding:4px 8px;")}">✏️</button>
+                  <button onclick="reqDeleteInv('${item.setNumber}')" style="${B("#fef2f2","#dc2626","font-size:11px;padding:4px 8px;")}">🗑️</button>
+                </div>
+              </div>
+            </div>`;
+          });
+          html += `</div>`;
+        }
+        html += `</div>`;
+      });
+    }
+  }
+
+  // ── DASHBOARD TAB ──
+  if (state.tab==="dashboard") {
+    html += `<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;">
+      ${[["Loans Out",totalOut,"#1d4ed8","#eff6ff","📤"],["Returned",totalRet,"#16a34a","#f0fdf4","✅"],["Overdue",overdueList.length,"#dc2626","#fef2f2","⚠️"],["Damaged/Repair",damaged.length,"#d97706","#fffbeb","🔧"]].map(([label,val,color,bg,icon])=>`
+        <div style="background:${bg};border-radius:10px;padding:12px;text-align:center;border:1px solid ${color}33;">
+          <div style="font-size:20px;">${icon}</div>
+          <div style="font-size:26px;font-weight:800;color:${color};">${val}</div>
+          <div style="font-size:10px;color:#64748b;">${label}</div>
+        </div>`).join("")}
+    </div>
+    <div style="background:white;border-radius:10px;padding:14px;margin-bottom:12px;">
+      <div style="font-weight:700;font-size:13px;margin-bottom:10px;color:#0f172a;">Condition — sets currently out</div>
+      ${Object.entries(COND).map(([cond,cfg])=>{
+        const count=allOut.filter(s=>s.condition===cond).length;
+        const pct=allOut.length?Math.round(count/allOut.length*100):0;
+        return `<div style="margin-bottom:8px;">
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:2px;">
+            <span style="color:${cfg.color};font-weight:700;">${cfg.icon} ${cond}</span>
+            <span style="color:#64748b;">${count} (${pct}%)</span>
+          </div>
+          <div style="background:#f1f5f9;border-radius:6px;height:7px;">
+            <div style="background:${cfg.color};border-radius:6px;height:7px;width:${pct}%;"></div>
+          </div>
+        </div>`;
+      }).join("")}
+    </div>
+    <button onclick="exportCSV()" style="${B("#1d4ed8","white","width:100%;padding:11px;font-size:13px;")}">📥 Export Report (CSV/Excel)</button>`;
+  }
+
+  // ── HISTORY TAB ──
+  if (state.tab==="history") {
+    const selMode = state.selectLogMode;
+    const selCount = state.selectedLogs.length;
+    const actLogs = state.activityLog.filter(e=>e.action!=="Status Change");
+    const allSelected = actLogs.length>0 && selCount===actLogs.length;
+
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div style="font-weight:700;font-size:13px;color:#0f172a;">🕓 Activity Log (${actLogs.length})</div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        ${actLogs.length>0?`<button onclick="exportActivityCSV()" style="padding:5px 12px;border-radius:20px;border:1px solid #16a34a;background:#f0fdf4;color:#16a34a;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">📥 Export</button>`:""}
+        ${selMode&&selCount>0?`<button onclick="reqDeleteSelectedLogs()" style="padding:5px 12px;border-radius:20px;border:none;background:#dc2626;color:white;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">🗑️ Delete (${selCount})</button>`:""}
+        ${actLogs.length>0?`<button onclick="toggleLogSelectMode()" style="padding:5px 12px;border-radius:20px;border:1px solid ${selMode?"#dc2626":"#cbd5e1"};background:${selMode?"#fef2f2":"white"};color:${selMode?"#dc2626":"#64748b"};font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">${selMode?"✕ Cancel":"☑️ Select"}</button>`:""}
+      </div>
+    </div>`;
+
+
+    if (selMode && actLogs.length>0) {
+      html += '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button onclick="toggleSelectAll()" style="padding:3px 10px;border-radius:20px;border:1px solid #cbd5e1;background:white;color:#64748b;font-size:11px;cursor:pointer;font-family:inherit;">'+(allSelected?"☑️ Deselect All":"☐ Select All")+"</button></div>";
+    }
+    if (actLogs.length===0) {
+      html += `<div style="background:white;border-radius:10px;padding:28px;text-align:center;color:#94a3b8;font-size:12px;">No activity yet.</div>`;
+    } else {
+      actLogs.forEach(e=>{
+        const color = e.action==="Returned"?"#16a34a":e.action==="Deleted"?"#dc2626":"#1d4ed8";
+        const isSelected = state.selectedLogs.includes(e.id);
+        html += `<div onclick="${selMode?`toggleLogSelect('${e.id}')`:''}" style="background:${isSelected?"#fef2f2":"white"};border-radius:9px;padding:10px 12px;margin-bottom:7px;border-left:3px solid ${isSelected?"#dc2626":color};border:${isSelected?"1.5px solid #fca5a5":"1px solid transparent"};box-shadow:0 1px 2px rgba(0,0,0,0.05);cursor:${selMode?"pointer":"default"};">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:3px;">
+            <div style="display:flex;align-items:center;gap:8px;flex:1;">
+              ${selMode?`<div style="width:18px;height:18px;border-radius:4px;border:2px solid ${isSelected?"#dc2626":"#cbd5e1"};background:${isSelected?"#dc2626":"white"};display:flex;align-items:center;justify-content:center;flex-shrink:0;">${isSelected?'<span style="color:white;font-size:11px;font-weight:700;">✓</span>':''}</div>`:""}
+              <span style="font-size:12px;font-weight:700;color:#0f172a;">${e.action==="Returned"?"✅":e.action==="Deleted"?"🗑️":"📤"} ${e.action} · ${e.count} set(s) ${e.hasPhoto?"📷":""}</span>
+            </div>
+            <span style="font-size:10px;color:#94a3b8;flex-shrink:0;margin-left:6px;">${e.ts}</span>
+          </div>
+          <div style="font-size:11px;color:#64748b;${selMode?"margin-left:26px":""}">🏥 ${e.hospital} · 👨‍⚕️ ${e.surgeon}</div>
+          <div style="font-size:10px;color:#94a3b8;margin-top:2px;${selMode?"margin-left:26px":""}">${e.sets}</div>
+        </div>`;
+      });
+    }
+  }
+
+  // ── RECTIFY TAB ──
+  if (state.tab==="rectify") {
+    const rectLogs = state.activityLog.filter(e=>e.action==="Status Change");
+    const selMode = state.selectLogMode;
+    const selCount = state.selectedLogs.length;
+    const allSelected = rectLogs.length>0 && selCount===rectLogs.length;
+
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <div style="font-weight:700;font-size:13px;color:#0f172a;">🔧 Rectification Log (${rectLogs.length})</div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        ${rectLogs.length>0?`<button onclick="exportRectifyCSV()" style="padding:5px 12px;border-radius:20px;border:1px solid #16a34a;background:#f0fdf4;color:#16a34a;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">📥 Export</button>`:""}
+        ${selMode&&selCount>0?`<button onclick="reqDeleteSelectedLogs()" style="padding:5px 12px;border-radius:20px;border:none;background:#dc2626;color:white;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">🗑️ Delete (${selCount})</button>`:""}
+        ${rectLogs.length>0?`<button onclick="toggleLogSelectMode()" style="padding:5px 12px;border-radius:20px;border:1px solid ${selMode?"#dc2626":"#cbd5e1"};background:${selMode?"#fef2f2":"white"};color:${selMode?"#dc2626":"#64748b"};font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">${selMode?"✕ Cancel":"☑️ Select"}</button>`:""}
+      </div>
+    </div>`;
+
+    if (selMode && rectLogs.length>0) {
+      html += '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button onclick="toggleSelectAll()" style="padding:3px 10px;border-radius:20px;border:1px solid #cbd5e1;background:white;color:#64748b;font-size:11px;cursor:pointer;font-family:inherit;">'+(allSelected?"☑️ Deselect All":"☐ Select All")+"</button></div>";
+    }
+    if (rectLogs.length===0) {
+      html += `<div style="background:white;border-radius:10px;padding:28px;text-align:center;color:#94a3b8;font-size:12px;">No rectification records yet.</div>`;
+    } else {
+      rectLogs.forEach(e=>{
+        const isSelected = state.selectedLogs.includes(e.id);
+        html += `<div onclick="${selMode?`toggleLogSelect('${e.id}')`:''}" style="background:${isSelected?"#fef2f2":"white"};border-radius:9px;padding:10px 12px;margin-bottom:7px;border-left:3px solid #16a34a;box-shadow:0 1px 2px rgba(0,0,0,0.05);cursor:${selMode?"pointer":"default"};">
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:3px;">
+            <div style="display:flex;align-items:center;gap:8px;flex:1;">
+              ${selMode?`<div style="width:18px;height:18px;border-radius:4px;border:2px solid ${isSelected?"#dc2626":"#cbd5e1"};background:${isSelected?"#dc2626":"white"};display:flex;align-items:center;justify-content:center;flex-shrink:0;">${isSelected?'<span style="color:white;font-size:11px;font-weight:700;">✓</span>':''}</div>`:""}
+              <span style="font-size:12px;font-weight:700;color:#0f172a;">🔄 ${e.sets}</span>
+            </div>
+            <span style="font-size:10px;color:#94a3b8;flex-shrink:0;margin-left:6px;">${e.ts}</span>
+          </div>
+          <div style="font-size:11px;color:#16a34a;font-weight:600;${selMode?"margin-left:26px":""}">👤 Rectified by: ${e.surgeon||"-"}</div>
+        </div>`;
+      });
+    }
+  }
+
+  html += `</div>`; // close padding div
+
+  // ── RETURN MODAL ──
+  if (state.returnModal) {
+    const r = state.returnModal;
+    const loan = r.loan;
+    html += `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:flex-start;justify-content:center;padding-top:20px;z-index:998;overflow-y:auto;">
+      <div style="background:#f0f4f8;border-radius:14px;width:95%;max-width:420px;margin-bottom:20px;overflow:hidden;">
+        <div style="background:linear-gradient(135deg,#0f2a5e,#16a34a);padding:14px 16px;color:white;">
+          <div style="font-size:15px;font-weight:800;">✅ Check-In — Return Sets</div>
+          <div style="font-size:11px;opacity:0.85;margin-top:2px;">🏥 ${loan.hospital} · 👨‍⚕️ ${loan.surgeon}</div>
+        </div>
+        <div style="padding:14px;display:flex;flex-direction:column;gap:12px;">
+          <div style="background:white;border-radius:10px;padding:14px;">
+            <div style="font-weight:700;font-size:12px;color:#0f2a5e;margin-bottom:8px;">📷 Check-In Photo Evidence (${r.photos.length})</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
+              <label style="background:#16a34a;color:white;border:none;border-radius:8px;padding:10px 6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center;">
+                <span style="font-size:20px;">📸</span><span>Take Photo</span>
+                <input type="file" accept="image/*" capture="environment" multiple onchange="handleReturnPhoto(event)" style="display:none;"/>
+              </label>
+              <label style="background:white;color:#16a34a;border:2px solid #16a34a;border-radius:8px;padding:10px 6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center;">
+                <span style="font-size:20px;">🖼️</span><span>Upload</span>
+                <input type="file" accept="image/*" multiple onchange="handleReturnPhoto(event)" style="display:none;"/>
+              </label>
+            </div>
+            ${r.photos.length>0?`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
+              ${r.photos.map((p,i)=>`<div style="position:relative;border-radius:8px;overflow:hidden;border:2px solid #bbf7d0;aspect-ratio:1;">
+                <img src="${p.dataUrl}" style="width:100%;height:100%;object-fit:cover;"/>
+                <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.6);padding:2px 4px;font-size:8px;color:white;text-align:center;">${p.compressedKB?p.compressedKB+"KB ✓":""}</div>
+                <button onclick="removeReturnPhoto(${i})" style="position:absolute;top:2px;right:2px;background:#dc2626;border:none;border-radius:50%;width:16px;height:16px;cursor:pointer;color:white;font-size:10px;line-height:1;padding:0;">×</button>
+              </div>`).join("")}
+            </div>`:`<div style="background:#f8fafc;border-radius:8px;border:2px dashed #e2e8f0;padding:12px;text-align:center;color:#94a3b8;font-size:11px;">No photos yet</div>`}
+          </div>
+          <div style="background:white;border-radius:10px;padding:14px;">
+            <div style="font-weight:700;font-size:12px;color:#0f2a5e;margin-bottom:6px;">🔍 Set Status After Return</div>
+            <div style="font-size:10px;color:#64748b;margin-bottom:10px;">Select what happens to each set after check-in</div>
+            ${loan.sets.map(s=>{
+              const RETURN_STATUS=[{val:"Available",icon:"🟢",label:"Good — Available",color:"#16a34a",bg:"#f0fdf4"},{val:"Quarantine",icon:"🔬",label:"Quarantine",color:"#d97706",bg:"#fffbeb"},{val:"Parked",icon:"🅿️",label:"Park at Hospital",color:"#7c3aed",bg:"#f5f3ff"}];
+              return `<div style="background:#f8fafc;border-radius:8px;padding:10px;margin-bottom:8px;border:1px solid #e2e8f0;">
+                <div style="font-size:11px;font-weight:700;color:#1d4ed8;margin-bottom:6px;">📦 ${s.setNumber} — ${s.description}</div>
+                <div style="display:flex;flex-direction:column;gap:5px;">
+                  ${RETURN_STATUS.map(st=>`<button onclick="state.returnModal.conditions['${s.setNumber}']='${st.val}';render()" style="padding:8px 10px;border:2px solid ${r.conditions[s.setNumber]===st.val?st.color:"#e2e8f0"};border-radius:7px;background:${r.conditions[s.setNumber]===st.val?st.bg:"white"};cursor:pointer;font-size:11px;font-weight:${r.conditions[s.setNumber]===st.val?700:400};color:${r.conditions[s.setNumber]===st.val?st.color:"#64748b"};font-family:inherit;text-align:left;">${st.icon} ${st.label}</button>`).join("")}
+                </div>
+                ${r.conditions[s.setNumber]==="Quarantine"?`<div style="margin-top:6px;">
+                  <div style="font-size:10px;font-weight:700;color:#d97706;margin-bottom:3px;">🔬 What is the issue? *</div>
+                  <input placeholder="e.g. Scope cracked, missing part..." value="${r.quarantineReasons&&r.quarantineReasons[s.setNumber]||''}" oninput="if(!state.returnModal.quarantineReasons)state.returnModal.quarantineReasons={};state.returnModal.quarantineReasons['${s.setNumber}']=this.value" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #fde68a;font-size:11px;box-sizing:border-box;font-family:inherit;background:#fffbeb;"/>
+                  <div style="font-size:10px;color:#d97706;margin-top:3px;">⚠️ Set will be blocked until management clears it</div>
+                </div>`:""}
+                ${r.conditions[s.setNumber]==="Parked"?`<div style="margin-top:6px;">
+                  <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:3px;">📍 Park at which hospital?</div>
+                  <input placeholder="e.g. Hospital Putrajaya" value="${r.parkHospitals&&r.parkHospitals[s.setNumber]||''}" oninput="if(!state.returnModal.parkHospitals)state.returnModal.parkHospitals={};state.returnModal.parkHospitals['${s.setNumber}']=this.value" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #ddd6fe;font-size:11px;box-sizing:border-box;font-family:inherit;background:#f5f3ff;"/>
+                </div>`:""}
+              </div>`;
+            }).join("")}
+          </div>
+          <div style="background:white;border-radius:10px;padding:14px;">
+            <div style="font-weight:700;font-size:12px;color:#0f2a5e;margin-bottom:6px;">📝 Return Note (optional)</div>
+            <input placeholder="e.g. All sets complete, scope cleaned" value="${r.note||""}" oninput="state.returnModal.note=this.value" style="padding:9px 12px;border-radius:7px;border:1px solid #cbd5e1;font-size:12px;width:100%;font-family:inherit;"/>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <button onclick="state.returnModal=null;render()" style="padding:12px;border-radius:8px;border:1px solid #e2e8f0;background:white;cursor:pointer;font-size:13px;font-weight:600;color:#64748b;font-family:inherit;">Cancel</button>
+            <button onclick="submitReturn()" style="padding:12px;border-radius:8px;border:none;background:#16a34a;cursor:pointer;font-size:13px;font-weight:700;color:white;font-family:inherit;">✅ Confirm Return</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── PHOTO LIGHTBOX ──
+  if (state.photoViewId) {
+    const loan = state.loans.find(l=>l.id===state.photoViewId);
+    const photos = loan?.photos||[];
+    const idx = state.photoViewIdx;
+    html += `<div onclick="closePhotoView()" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:40px;z-index:999;cursor:pointer;">
+      <div onclick="event.stopPropagation()" style="width:100%;max-width:380px;padding:0 12px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <span style="color:white;font-weight:700;font-size:14px;">📷 Photo ${idx+1} of ${photos.length}</span>
+          <button onclick="closePhotoView()" style="background:rgba(255,255,255,0.15);border:none;color:white;border-radius:20px;padding:4px 12px;cursor:pointer;font-size:13px;font-weight:700;font-family:inherit;">✕ Close</button>
+        </div>
+        <img src="${photos[idx]?.dataUrl||""}" style="width:100%;border-radius:10px;border:2px solid rgba(255,255,255,0.2);"/>
+        <div style="color:rgba(255,255,255,0.6);font-size:11px;text-align:center;margin-top:8px;">Taken at ${photos[idx]?.ts||""}</div>
+        ${photos.length>1?`<div style="display:flex;gap:6px;margin-top:12px;justify-content:center;">
+          ${photos.map((_,i)=>`<div onclick="setPhotoIdx(${i})" style="width:44px;height:44px;border-radius:6px;overflow:hidden;border:2px solid ${i===idx?"#60a5fa":"rgba(255,255,255,0.2)"};cursor:pointer;flex-shrink:0;">
+            <img src="${photos[i].dataUrl}" style="width:100%;height:100%;object-fit:cover;"/>
+          </div>`).join("")}
+        </div>`:""}
+      </div>
+    </div>`;
+  }
+
+  // ── REPAIR CONFIRM MODAL ──
+  if (state.repairModal) {
+    const rm = state.repairModal;
+    html += `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:1002;padding:16px;">
+      <div style="background:white;border-radius:14px;padding:22px;width:100%;max-width:360px;">
+        <div style="font-size:32px;text-align:center;margin-bottom:8px;">🔧</div>
+        <div style="font-weight:800;font-size:15px;text-align:center;color:#0f2a5e;margin-bottom:6px;">Item Updated!</div>
+        <div style="font-size:12px;color:#64748b;text-align:center;margin-bottom:16px;">This set is currently in 🔬 Quarantine</div>
+        ${rm.snChanged?`<div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:16px;">
+          <div style="font-size:11px;color:#64748b;margin-bottom:6px;font-weight:600;">S/N UPDATED:</div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
+            <span style="color:#94a3b8;">Old S/N:</span>
+            <span style="color:#dc2626;font-weight:600;text-decoration:line-through;">${rm.oldSn||"(empty)"}</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:12px;">
+            <span style="color:#94a3b8;">New S/N:</span>
+            <span style="color:#16a34a;font-weight:700;">${rm.newSn}</span>
+          </div>
+        </div>`:`<div style="background:#fffbeb;border-radius:10px;padding:10px;margin-bottom:16px;font-size:11px;color:#d97706;">ℹ️ No S/N change detected</div>`}
+        <div style="font-size:13px;font-weight:700;color:#0f2a5e;margin-bottom:10px;">Has the issue been resolved?</div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px;">
+          <button onclick="saveInvAsAvailable()" style="padding:12px;border-radius:8px;border:2px solid #16a34a;background:#f0fdf4;cursor:pointer;font-size:13px;font-weight:700;color:#16a34a;font-family:inherit;text-align:left;">
+            🟢 Yes — Mark as Available
+            <div style="font-size:11px;font-weight:400;color:#64748b;margin-top:2px;">Set is repaired and ready for loans</div>
+          </button>
+          <button onclick="saveInvKeepQuarantine()" style="padding:12px;border-radius:8px;border:2px solid #d97706;background:#fffbeb;cursor:pointer;font-size:13px;font-weight:700;color:#d97706;font-family:inherit;text-align:left;">
+            🔬 No — Keep in Quarantine
+            <div style="font-size:11px;font-weight:400;color:#64748b;margin-top:2px;">Still needs more work</div>
+          </button>
+        </div>
+        <button onclick="state.repairModal=null;render()" style="width:100%;padding:10px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;cursor:pointer;font-size:13px;font-weight:600;color:#64748b;font-family:inherit;">Cancel — Don't Save</button>
+      </div>
+    </div>`;
+  }
+
+  // ── PARK MODAL ──
+  if (state.parkModal) {
+    const pm = state.parkModal;
+    const isParked = pm.newStatus === "Parked";
+    const isAvail = pm.newStatus === "Available";
+    const isQuar = pm.newStatus === "Quarantine";
+    const confirmColor = isParked?"#7c3aed":isAvail?"#16a34a":isQuar?"#d97706":"#1d4ed8";
+
+    html += `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:2000;padding:16px;overflow-y:auto;">
+      <div style="background:white;border-radius:14px;padding:20px;width:100%;max-width:360px;">
+        <div style="font-size:14px;font-weight:800;color:#0f2a5e;margin-bottom:2px;">🔄 Change Set Status</div>
+        <div style="font-size:12px;color:#64748b;margin-bottom:14px;">Set: <b>${pm.setNumber}</b> · Current: <b>${pm.currentStatus||"Available"}</b></div>
+        <div style="margin-bottom:14px;">
+          <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:6px;">SELECT NEW STATUS *</div>
+          <div style="display:flex;flex-direction:column;gap:6px;">
+            ${Object.entries(AVAIL).filter(([k])=>k!=="Out").map(([key,cfg])=>`
+              <button onclick="(function(e){e.stopPropagation();var sy=window.scrollY;state.parkModal.newStatus='${key}';render();window.scrollTo(0,sy);})(event)" style="padding:10px 12px;border:2px solid ${pm.newStatus===key?cfg.color:"#e2e8f0"};border-radius:8px;background:${pm.newStatus===key?cfg.bg:"white"};cursor:pointer;font-size:12px;font-weight:${pm.newStatus===key?700:500};color:${pm.newStatus===key?cfg.color:"#475569"};font-family:inherit;text-align:left;display:flex;align-items:center;gap:8px;">
+                <span style="font-size:16px;">${cfg.icon}</span>
+                <div><div style="font-weight:700;">${cfg.label}</div>
+                <div style="font-size:10px;opacity:0.8;">${key==="Available"?"Ready for loans":key==="Quarantine"?"Block — has issue":"Long term at hospital"}</div></div>
+              </button>`).join("")}
+          </div>
+        </div>
+        <div style="margin-bottom:12px;">
+          <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:4px;">YOUR NAME * (for record)</div>
+          <input id="parkStaffName" placeholder="e.g. Ahmad / Lim / Carmen" value="${pm.staffName||""}" oninput="state.parkModal.staffName=this.value" style="width:100%;padding:10px;border-radius:7px;border:1px solid #cbd5e1;font-size:13px;box-sizing:border-box;font-family:inherit;"/>
+        </div>
+        ${isParked?`<div style="margin-bottom:10px;">
+          <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:4px;">HOSPITAL / LOCATION *</div>
+          <input id="parkHospital" placeholder="e.g. Hospital Putrajaya" value="${pm.hospital||""}" oninput="state.parkModal.hospital=this.value" style="width:100%;padding:10px;border-radius:7px;border:1px solid #7c3aed;font-size:13px;box-sizing:border-box;font-family:inherit;"/>
+        </div>
+        <div style="margin-bottom:14px;">
+          <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:4px;">PARKED SINCE</div>
+          <input type="date" value="${pm.since||""}" oninput="state.parkModal.since=this.value" style="width:100%;padding:10px;border-radius:7px;border:1px solid #cbd5e1;font-size:13px;box-sizing:border-box;font-family:inherit;"/>
+        </div>`:""}
+        ${isQuar?`<div style="background:#fffbeb;border-radius:8px;padding:8px 10px;margin-bottom:12px;font-size:11px;color:#d97706;">🔬 Set will be blocked from loans until management clears it.</div>`:""}
+        ${isAvail?`<div style="background:#f0fdf4;border-radius:8px;padding:8px 10px;margin-bottom:12px;font-size:11px;color:#16a34a;">🟢 Set will become available for loans again.</div>`:""}
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <button type="button" onclick="state.parkModal=null;render()" style="flex:1;padding:12px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;cursor:pointer;font-size:14px;font-weight:600;color:#64748b;font-family:inherit;">Cancel</button>
+          <button type="button" onclick="submitParkModal()" style="flex:1;padding:12px;border-radius:8px;border:none;background:${pm.newStatus?confirmColor:"#94a3b8"};cursor:pointer;font-size:14px;font-weight:700;color:white;font-family:inherit;pointer-events:all;">✅ Confirm</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // ── ACCESS CONTROL MODAL ──
+  if (state.modal) {
+    const m = state.modal;
+    html += `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;">
+      <div style="background:white;border-radius:14px;padding:22px;width:100%;max-width:320px;">
+        <div style="font-size:28px;text-align:center;margin-bottom:6px;">${m.type==="pin"?"🔐":"🔑"}</div>
+        <div style="font-weight:800;font-size:15px;text-align:center;color:#0f2a5e;margin-bottom:3px;">${m.type==="pin"?"Inventory Access":"Confirm Delete"}</div>
+        <div style="font-size:12px;color:#64748b;text-align:center;margin-bottom:14px;">${m.type==="pin"?"Enter management PIN to edit inventory":"Enter admin password to delete"}</div>
+        <input type="password" id="modal-input" placeholder="${m.type==="pin"?"Enter PIN":"Enter password"}" value="${m.input||""}"
+          oninput="updateModalInput(this.value)" onkeydown="if(event.key==='Enter')submitModal()"
+          autofocus style="width:100%;padding:11px;border-radius:7px;border:1px solid #cbd5e1;font-size:16px;text-align:center;letter-spacing:6px;box-sizing:border-box;margin-bottom:6px;font-family:inherit;"/>
+        ${m.error?`<div style="color:#dc2626;font-size:11px;text-align:center;margin-bottom:6px;">⚠️ ${m.error}</div>`:""}
+        <div style="display:flex;gap:8px;margin-top:4px;">
+          <button onclick="closeModal()" style="flex:1;padding:9px;border-radius:7px;border:1px solid #e2e8f0;background:#f8fafc;cursor:pointer;font-size:12px;font-weight:600;color:#64748b;font-family:inherit;">Cancel</button>
+          <button onclick="submitModal()" style="flex:1;padding:9px;border-radius:7px;border:none;background:#1d4ed8;cursor:pointer;font-size:12px;font-weight:700;color:white;font-family:inherit;">${m.type==="pin"?"Unlock":"Confirm"}</button>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  html += `</div>`; // close app div
+  document.getElementById("app").innerHTML = html;
+}
+
+// ── EVENT HANDLERS ───────────────────────────────────────
+function switchTab(t) { state.tab=t; state.showForm=false; state.showInvForm=false; state.selectLogMode=false; state.selectedLogs=[]; render(); }
+function updateSearch(v) { state.search=v; render(); }
+function updateFStatus(v) { state.fStatus=v; render(); }
+function updateInvSearch(v) { state.invSearch=v; render(); }
+function updateInvCat(v) { state.invCat=v; render(); }
+function updateInvAvail(v) { state.invAvail=v; render(); }
+function toggleForm() { state.showForm=!state.showForm; if(!state.showForm){state.editId=null;state.form=emptyForm();} render(); }
+function toggleExpand(id) { state.expandedId=state.expandedId===id?null:id; render(); }
+function toggleCat(cat) { state.collapsedCats[cat] = !state.collapsedCats[cat]; render(); }
+
+function updateFormField(name,val) { state.form[name]=val; }
+function toggleSetDrop(i) {
+  if(event) { event.stopPropagation(); event.preventDefault(); }
+  const scrollY = window.scrollY;
+  state.setDropOpen = state.setDropOpen||{};
+  const wasOpen = state.setDropOpen[i];
+  state.setDropOpen = {};
+  state.setDropOpen[i] = !wasOpen;
+  render();
+  window.scrollTo(0, scrollY);
+}
+function toggleSetDropCat(i, cat) {
+  if(event) { event.stopPropagation(); event.preventDefault(); }
+  const key = i+"_"+encodeURIComponent(cat);
+  const scrollY = window.scrollY;
+  state.setDropCats = state.setDropCats||{};
+  state.setDropCats[key] = !state.setDropCats[key];
+  render();
+  window.scrollTo(0, scrollY);
+}
+function toggleSetDropCatByKey(e, key) {
+  if(e) { e.stopPropagation(); e.preventDefault(); }
+  const scrollY = window.scrollY;
+  state.setDropCats = state.setDropCats||{};
+  state.setDropCats[key] = !state.setDropCats[key];
+  render();
+  window.scrollTo(0, scrollY);
+}
+function selectSet(i, setNum) {
+  if(event) { event.stopPropagation(); event.preventDefault(); }
+  const scrollY = window.scrollY;
+  updateSet(i,'setNumber',setNum);
+  state.setDropOpen=state.setDropOpen||{};
+  state.setDropOpen[i]=false;
+  state.setSearch=state.setSearch||{};
+  state.setSearch[i]="";
+  render();
+  window.scrollTo(0, scrollY);
+}
+function updateSet(i,field,val) {
+  if(field==="setNumber"){ const found=state.inventory.find(x=>x.setNumber===val); if(found){state.form.sets[i]={...state.form.sets[i],setNumber:val,description:found.description,brand:found.brand,sn:found.sn};}else{state.form.sets[i].setNumber=val;} }
+  else state.form.sets[i][field]=val;
+  render();
+}
+function addSet() { state.form.sets.push({setNumber:"",description:"",brand:"",sn:"",condition:"Good"}); render(); }
+function removeSet(i) { state.form.sets.splice(i,1); render(); }
+function saveLoanForm() { saveLoan(); }
+
+function handlePhoto(event) {
+  const files = Array.from(event.target.files);
+  files.forEach(file=>{
+    compressPhoto(file, (dataUrl, originalKB, compressedKB)=>{
+      state.form.photos.push({dataUrl, name:file.name, ts:new Date().toLocaleTimeString("en-MY"), compressedKB});
+      render();
+    });
+  });
+}
+function removePhoto(i) { state.form.photos.splice(i,1); render(); }
+
+function doReturn(id) {
+  const loan = state.loans.find(l=>l.id===id);
+  const conditions = {};
+  loan.sets.forEach(s=>{ conditions[s.setNumber] = "Available"; });
+  state.returnModal = { loanId:id, loan, photos:[], conditions, note:"" };
+  render();
+}
+function submitReturn() {
+  const r = state.returnModal;
+  const combined = {...(r.parkHospitals||{})};
+  if (r.quarantineReasons) {
+    Object.entries(r.quarantineReasons).forEach(([k,v]) => { combined["qr_"+k] = v; });
+  }
+  returnLoan(r.loanId, r.photos, r.conditions, r.note, combined);
+}
+function handleReturnPhoto(event) {
+  const files = Array.from(event.target.files);
+  files.forEach(file=>{
+    compressPhoto(file, (dataUrl, originalKB, compressedKB)=>{
+      state.returnModal.photos.push({dataUrl, name:file.name, ts:new Date().toLocaleTimeString("en-MY"), compressedKB});
+      render();
+    });
+  });
+}
+function removeReturnPhoto(i) { state.returnModal.photos.splice(i,1); render(); }
+
+function reqDelete(id) { state.modal={type:"delete",fn:()=>deleteLoan(id),input:"",error:"",customPassword:"admin123"}; render(); }
+function editLoan(id) {
+  const l=state.loans.find(x=>x.id===id);
+  state.form={...l,photos:l.photos||[]};
+  state.editId=id; state.showForm=true; state.tab="loans";
+  render(); window.scrollTo(0,0);
+}
+
+function openPhotoView(loanId,idx) { state.photoViewId=loanId; state.photoViewIdx=idx; render(); }
+function closePhotoView() { state.photoViewId=null; render(); }
+function setPhotoIdx(i) { state.photoViewIdx=i; render(); }
+
+function updateInvForm(name,val) { state.invForm[name]=val; }
+function toggleInvForm() {
+  if(state.showInvForm){state.showInvForm=false;render();return;}
+  if(state.invUnlocked){state.invForm=emptyInv();state.invEditKey=null;state.showInvForm=true;render();}
+  else{state.modal={type:"pin",fn:()=>{state.invForm=emptyInv();state.invEditKey=null;state.showInvForm=true;render();},input:"",error:""};render();}
+}
+function reqEditInv(setNum) {
+  const fn=()=>{const item=state.inventory.find(i=>i.setNumber===setNum);state.invForm={...item,availability:item.availability||"Available",consignmentHospital:item.consignmentHospital||"",consignmentSince:item.consignmentSince||""};state.invEditKey=setNum;state.showInvForm=true;render();};
+  if(state.invUnlocked)fn();else{state.modal={type:"pin",fn,input:"",error:""};render();}
+}
+function reqDeleteInv(setNum) {
+  const fn=()=>deleteInvItem(setNum);
+  if(state.invUnlocked)fn();else{state.modal={type:"pin",fn,input:"",error:""};render();}
+}
+function saveInv() { saveInvItem(false); }
+function lockInv() { state.invUnlocked=false; state.showInvForm=false; render(); }
+
+function updateModalInput(v) { if(state.modal)state.modal.input=v; }
+function closeModal() { state.modal=null; render(); }
+function submitModal() {
+  if(!state.modal)return;
+  if(state.modal.type==="pin"){
+    if(state.modal.input===INVENTORY_PIN){state.invUnlocked=true;const fn=state.modal.fn;state.modal=null;fn();}
+    else{state.modal.error="Wrong PIN. Try again.";state.modal.input="";render();}
+  } else {
+    const expectedPwd = state.modal.customPassword || DELETE_PASSWORD;
+    if(state.modal.input===expectedPwd){const fn=state.modal.fn;state.modal=null;fn();}
+    else{state.modal.error="Wrong password. Try again.";state.modal.input="";render();}
+  }
+}
+
+function exportCSV() {
+  const h=["Hospital","Surgeon","PIC","Out","Due","Status","Set No.","Description","Brand","S/N","Condition","Note","Photos"];
+  const rows=state.loans.flatMap(l=>(l.sets||[]).map(s=>[l.hospital,l.surgeon,l.pic,l.borrowDate,l.returnDate,l.status,s.setNumber,s.description,s.brand,s.sn,s.condition,l.caseNote,(l.photos||[]).length+" photo(s)"]));
+  const csv=[h,...rows].map(r=>r.map(c=>'"'+(c||"")+'"').join(",")).join("\n");
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`SpineLoanReport_${new Date().toISOString().split("T")[0]}.csv`;a.click();
+  toast("📥 Report downloaded!");
+}
+
+function toggleLogSelectMode() { state.selectLogMode=!state.selectLogMode; state.selectedLogs=[]; render(); }
+function toggleLogSelect(id) {
+  if(state.selectedLogs.includes(id)){state.selectedLogs=state.selectedLogs.filter(x=>x!==id);}
+  else{state.selectedLogs.push(id);}
+  render();
+}
+function toggleSelectAll() {
+  const currentLogs = state.tab==="rectify"
+    ? state.activityLog.filter(e=>e.action==="Status Change")
+    : state.activityLog.filter(e=>e.action!=="Status Change");
+  if(state.selectedLogs.length===currentLogs.length){state.selectedLogs=[];}
+  else{state.selectedLogs=currentLogs.map(e=>e.id);}
+  render();
+}
+async function doDeleteSelectedLogs() {
+  const ids=[...state.selectedLogs];
+  for(const id of ids){await sb.from("activity_log").delete().eq("id",id);}
+  state.activityLog=state.activityLog.filter(e=>!ids.includes(e.id));
+  state.selectedLogs=[]; state.selectLogMode=false;
+  toast(`🗑️ ${ids.length} log entries deleted!`); render();
+}
+function reqDeleteSelectedLogs() { state.modal={type:"delete",fn:()=>doDeleteSelectedLogs(),input:"",error:""}; render(); }
+
+function quickStatus(setNum, currentStatus) {
+  state.modal={type:"pin",fn:()=>{
+    state.modal=null; // clear PIN modal first
+    state.parkModal={setNumber:setNum,currentStatus:currentStatus||"Available",newStatus:"",hospital:"",since:new Date().toISOString().split("T")[0],staffName:""};
+    render();
+  },input:"",error:""};
+  render();
+}
+async function doQuickStatus(setNum, newStatus, hospital, since, staffName) {
+  // Close modal immediately
+  state.parkModal = null;
+  render();
+
+  const updateData = {
+    availability: newStatus,
+    consignment_hospital: hospital||null,
+    consignment_since: since||null
+  };
+  if (newStatus === "Parked" && hospital) updateData.location = hospital;
+  if (newStatus === "Available") {
+    updateData.consignment_hospital = null;
+    updateData.consignment_since = null;
+    updateData.rectified_by = staffName||"Unknown";
+    updateData.rectified_at = new Date().toISOString();
+  } else {
+    updateData.rectified_by = null;
+    updateData.rectified_at = null;
+  }
+  await sb.from("inventory").update(updateData).eq("set_number", setNum);
+
+  // Log to activity log
+  const label = newStatus==="Available"?"🟢 Available":newStatus==="Parked"?"🅿️ Parked":"🔬 Quarantine";
+  const noteText = newStatus==="Parked"?` @ ${hospital||"-"}`:newStatus==="Quarantine"?" — blocked for inspection":"";
+  await sb.from("activity_log").insert({
+    action: "Status Change",
+    hospital: newStatus==="Parked"?(hospital||"-"):"-",
+    surgeon: staffName||"Unknown",
+    pic: staffName||"Unknown",
+    set_numbers: `${setNum}: ${label}${noteText}`,
+    set_count: 1,
+    has_photo: false
+  });
+
+  toast(setNum+" → "+label+(hospital?" @ "+hospital:"")+(staffName?" by "+staffName:""));
+  await loadAll();
+}
+
+function submitParkModal() {
+  const pm = state.parkModal;
+  if(!pm) return;
+  const nameEl = document.getElementById("parkStaffName");
+  const hospitalEl = document.getElementById("parkHospital");
+  if(nameEl) pm.staffName = nameEl.value.trim();
+  if(hospitalEl) pm.hospital = hospitalEl.value.trim();
+  if(!pm.newStatus){ alert("Please select a status!"); return; }
+  if(!pm.staffName){ alert("Please enter your name!"); return; }
+  if(pm.newStatus==="Parked" && !pm.hospital){ alert("Please enter hospital name!"); return; }
+  doQuickStatus(pm.setNumber, pm.newStatus, pm.hospital, pm.since, pm.staffName);
+}
+function reqMarkAvailable(setNum) {
+  const inv=state.inventory.find(i=>i.setNumber===setNum);
+  const fn=()=>{
+    state.modal=null; // clear PIN modal first
+    state.parkModal={setNumber:setNum,currentStatus:inv?.availability||"Available",newStatus:"",hospital:"",since:new Date().toISOString().split("T")[0],staffName:""};
+    render();
+  };
+  if(state.invUnlocked)fn();else{state.modal={type:"pin",fn,input:"",error:""};render();}
+}
+
+// ── EXPORT FUNCTIONS ────────────────────────────────────
+function exportActivityCSV() {
+  const actLogs = state.activityLog.filter(e=>e.action!=="Status Change");
+  const h = ["Date/Time","Action","Hospital","Surgeon","PIC","Sets","Set Count","Has Photo"];
+  const rows = actLogs.map(e=>[e.ts, e.action, e.hospital, e.surgeon, e.surgeon, e.sets, e.count, e.hasPhoto?"Yes":"No"]);
+  const csv = [h,...rows].map(r=>r.map(c=>"\""+(c||"")+"\"").join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download = `ActivityLog_${new Date().toISOString().split("T")[0]}.csv`;
+  a.click();
+  toast("📥 Activity log exported!");
+}
+
+function exportRectifyCSV() {
+  const rectLogs = state.activityLog.filter(e=>e.action==="Status Change");
+  const h = ["Date/Time","Set / Status Change","Rectified By"];
+  const rows = rectLogs.map(e=>[e.ts, e.sets, e.surgeon]);
+  const csv = [h,...rows].map(r=>r.map(c=>"\""+(c||"")+"\"").join(",")).join("\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download = `RectificationLog_${new Date().toISOString().split("T")[0]}.csv`;
+  a.click();
+  toast("📥 Rectification log exported!");
+}
+
+// ── INIT ─────────────────────────────────────────────────
+function acceptDisclaimer() {
+  state.disclaimerAccepted = true;
+  render();
+}
+loadAll();
+</script>
+</body>
+</html>
