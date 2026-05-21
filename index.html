@@ -1278,8 +1278,8 @@ function reqEditInv(setNum) {
   if(state.invUnlocked)fn();else{state.modal={type:"pin",fn,input:"",error:""};render();}
 }
 function reqDeleteInv(setNum) {
-  const fn=()=>deleteInvItem(setNum);
-  if(state.invUnlocked)fn();else{state.modal={type:"pin",fn,input:"",error:""};render();}
+  state.modal={type:"delete", customPassword:"admin123", fn:()=>deleteInvItem(setNum), input:"", error:""};
+  render();
 }
 function saveInv() { saveInvItem(false); }
 function lockInv() { state.invUnlocked=false; state.showInvForm=false; render(); }
@@ -1289,7 +1289,12 @@ function closeModal() { state.modal=null; render(); }
 function submitModal() {
   if(!state.modal)return;
   if(state.modal.type==="pin"){
-    if(state.modal.input===INVENTORY_PIN){state.invUnlocked=true;const fn=state.modal.fn;state.modal=null;fn();}
+    if(state.modal.input===INVENTORY_PIN){
+      if(!state.modal.skipUnlock) state.invUnlocked=true;
+      const fn=state.modal.fn;
+      state.modal=null;
+      fn();
+    }
     else{state.modal.error="Wrong PIN. Try again.";state.modal.input="";render();}
   } else {
     const expectedPwd = state.modal.customPassword || DELETE_PASSWORD;
@@ -1328,12 +1333,7 @@ async function doDeleteSelectedLogs() {
   toast(`🗑️ ${ids.length} log entries deleted!`); render();
 }
 function reqDeleteSelectedLogs() {
-  // Step 1: PIN first
-  state.modal={type:"pin", fn:()=>{
-    // Step 2: Then admin password
-    state.modal={type:"delete", fn:()=>doDeleteSelectedLogs(), input:"", error:""};
-    render();
-  }, input:"", error:""};
+  state.modal={type:"delete", customPassword:"admin123", fn:()=>doDeleteSelectedLogs(), input:"", error:""};
   render();
 }
 
