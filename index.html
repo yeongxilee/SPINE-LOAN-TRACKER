@@ -1194,6 +1194,30 @@ function addSet() { state.form.sets.push({setNumber:"",description:"",brand:"",s
 function removeSet(i) { state.form.sets.splice(i,1); render(); }
 function saveLoanForm() { saveLoan(); }
 
+function compressPhoto(file, callback) {
+  const MAX_WIDTH = 1024;
+  const MAX_HEIGHT = 1024;
+  const QUALITY = 0.7;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      let w = img.width, h = img.height;
+      if (w > MAX_WIDTH) { h = Math.round(h * MAX_WIDTH / w); w = MAX_WIDTH; }
+      if (h > MAX_HEIGHT) { w = Math.round(w * MAX_HEIGHT / h); h = MAX_HEIGHT; }
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      const compressed = canvas.toDataURL("image/jpeg", QUALITY);
+      const originalKB = Math.round(file.size / 1024);
+      const compressedKB = Math.round(compressed.length * 0.75 / 1024);
+      callback(compressed, originalKB, compressedKB);
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
 function handlePhoto(event) {
   const files = Array.from(event.target.files);
   files.forEach(file=>{
