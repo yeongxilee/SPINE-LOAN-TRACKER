@@ -1327,7 +1327,15 @@ async function doDeleteSelectedLogs() {
   state.selectedLogs=[]; state.selectLogMode=false;
   toast(`🗑️ ${ids.length} log entries deleted!`); render();
 }
-function reqDeleteSelectedLogs() { state.modal={type:"delete",fn:()=>doDeleteSelectedLogs(),input:"",error:""}; render(); }
+function reqDeleteSelectedLogs() {
+  // Step 1: PIN first
+  state.modal={type:"pin", fn:()=>{
+    // Step 2: Then admin password
+    state.modal={type:"delete", fn:()=>doDeleteSelectedLogs(), input:"", error:""};
+    render();
+  }, input:"", error:""};
+  render();
+}
 
 function quickStatus(setNum, currentStatus) {
   state.modal={type:"pin",fn:()=>{
