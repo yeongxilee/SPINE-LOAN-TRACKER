@@ -293,6 +293,7 @@ async function saveInvItem(forceAvailable) {
 
     const finalAvail = forceAvailable ? "Available" : (f.availability||"Available");
     await sb.from("inventory").update({
+      set_number: f.setNumber,
       description:f.description, brand:f.brand, sn:f.sn, location:f.location,
       remark: forceAvailable ? "" : f.remark,
       availability: finalAvail,
