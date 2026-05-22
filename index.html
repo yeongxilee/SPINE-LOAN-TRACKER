@@ -292,16 +292,30 @@ async function saveInvItem(forceAvailable) {
     }
 
     const finalAvail = forceAvailable ? "Available" : (f.availability||"Available");
-    await sb.from("inventory").update({
-      set_number: f.setNumber,
-      description:f.description, brand:f.brand, sn:f.sn, location:f.location,
-      remark: forceAvailable ? "" : f.remark,
-      availability: finalAvail,
-      consignment_hospital: f.consignmentHospital||null,
-      consignment_since: f.consignmentSince||null,
-      rectified_by: forceAvailable ? "Management" : null,
-      rectified_at: forceAvailable ? new Date().toISOString() : null
-    }).eq("set_number", state.invEditKey);
+    if (f.setNumber !== state.invEditKey) {
+      // Set number changed — delete old and insert new
+      await sb.from("inventory").delete().eq("set_number", state.invEditKey);
+      await sb.from("inventory").insert({
+        set_number: f.setNumber,
+        description:f.description, brand:f.brand, sn:f.sn, location:f.location,
+        remark: forceAvailable ? "" : f.remark,
+        availability: finalAvail,
+        consignment_hospital: f.consignmentHospital||null,
+        consignment_since: f.consignmentSince||null,
+        rectified_by: forceAvailable ? "Management" : null,
+        rectified_at: forceAvailable ? new Date().toISOString() : null
+      });
+    } else {
+      await sb.from("inventory").update({
+        description:f.description, brand:f.brand, sn:f.sn, location:f.location,
+        remark: forceAvailable ? "" : f.remark,
+        availability: finalAvail,
+        consignment_hospital: f.consignmentHospital||null,
+        consignment_since: f.consignmentSince||null,
+        rectified_by: forceAvailable ? "Management" : null,
+        rectified_at: forceAvailable ? new Date().toISOString() : null
+      }).eq("set_number", state.invEditKey);
+    }
 
     if (forceAvailable) {
       await sb.from("activity_log").insert({
