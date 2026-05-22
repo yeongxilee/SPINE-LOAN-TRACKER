@@ -789,7 +789,7 @@ function render() {
     } else {
       cats.forEach(cat => {
         const catItems = filteredInv.filter(i=>i.description===cat);
-        const isCollapsed = state.collapsedCats[cat] === true;
+        const isCollapsed = state.collapsedCats[cat] !== false; // collapsed by default
         const availCount = catItems.filter(i=>(i.availability||"Available")==="Available").length;
         const outCount = catItems.filter(i=>i.availability==="Out").length;
         const quarCount = catItems.filter(i=>i.availability==="Quarantine").length;
@@ -1157,7 +1157,12 @@ function updateInvCat(v) { state.invCat=v; render(); }
 function updateInvAvail(v) { state.invAvail=v; render(); }
 function toggleForm() { state.showForm=!state.showForm; if(!state.showForm){state.editId=null;state.form=emptyForm();} render(); }
 function toggleExpand(id) { state.expandedId=state.expandedId===id?null:id; render(); }
-function toggleCat(cat) { state.collapsedCats[cat] = !state.collapsedCats[cat]; render(); }
+function toggleCat(cat) {
+  state.collapsedCats = state.collapsedCats||{};
+  // Default is collapsed (true), toggle to false to open
+  state.collapsedCats[cat] = state.collapsedCats[cat] === false ? true : false;
+  render();
+}
 
 function updateFormField(name,val) { state.form[name]=val; }
 function toggleSetDrop(i) {
