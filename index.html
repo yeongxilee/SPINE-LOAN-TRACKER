@@ -814,9 +814,7 @@ function render() {
                     ${item.remark?`<span>📝 ${item.remark}</span>`:""}
                   </div>
                   <div style="display:flex;gap:5px;flex-wrap:wrap;margin-top:4px;">
-                    ${itemAvail!=="Out"?`
-                      <button onclick="quickStatus('${item.setNumber}','${itemAvail}')" style="padding:4px 12px;border-radius:20px;border:1px solid #1d4ed8;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">🔄 Change Status</button>
-                    `:`<span style="font-size:10px;color:#94a3b8;font-style:italic;">Auto-managed by loan system</span>`}
+                    <button onclick="quickStatus('${item.setNumber}','${itemAvail}')" style="padding:4px 12px;border-radius:20px;border:1px solid #1d4ed8;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">🔄 Change Status</button>
                   </div>
                 </div>
                 <div style="display:flex;flex-direction:column;gap:4px;margin-left:6px;align-items:flex-end;">
