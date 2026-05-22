@@ -1094,7 +1094,7 @@ function render() {
         <div style="margin-bottom:14px;">
           <div style="font-size:11px;font-weight:700;color:#475569;margin-bottom:6px;">SELECT NEW STATUS *</div>
           <div style="display:flex;flex-direction:column;gap:6px;">
-            ${Object.entries(AVAIL).filter(([k])=>k!=="Out").map(([key,cfg])=>`
+            ${Object.entries(AVAIL).map(([key,cfg])=>`
               <button onclick="(function(e){e.stopPropagation();var sy=window.scrollY;state.parkModal.newStatus='${key}';render();window.scrollTo(0,sy);})(event)" style="padding:10px 12px;border:2px solid ${pm.newStatus===key?cfg.color:"#e2e8f0"};border-radius:8px;background:${pm.newStatus===key?cfg.bg:"white"};cursor:pointer;font-size:12px;font-weight:${pm.newStatus===key?700:500};color:${pm.newStatus===key?cfg.color:"#475569"};font-family:inherit;text-align:left;display:flex;align-items:center;gap:8px;">
                 <span style="font-size:16px;">${cfg.icon}</span>
                 <div><div style="font-weight:700;">${cfg.label}</div>
