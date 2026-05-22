@@ -117,6 +117,7 @@ let state = {
   setDropOpen: {}, // which set dropdowns are open
   staff: [], // staff list from DB
   staffModal: null, // { action, fn, name, password, error }
+  changePwModal: null, // { name, oldPass, newPass, confPass, error, success }
   setDropCats: {}, // which categories are expanded in set dropdown
   disclaimerAccepted: false,
   rectifyLogs: [], // separate rectification logs
@@ -1220,6 +1221,50 @@ function render() {
           <button type="button" onclick="state.staffModal=null;render()" style="flex:1;padding:11px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;cursor:pointer;font-size:13px;font-weight:600;color:#64748b;font-family:inherit;">Cancel</button>
           <button type="button" onclick="submitStaffModal()" style="flex:1;padding:11px;border-radius:8px;border:none;background:#1d4ed8;cursor:pointer;font-size:13px;font-weight:700;color:white;font-family:inherit;">✅ Confirm</button>
         </div>
+        <div style="text-align:center;margin-top:10px;">
+          <span onclick="showChangePassword()" style="font-size:11px;color:#1d4ed8;cursor:pointer;text-decoration:underline;">🔑 Change my password</span>
+        </div>
+      </div>
+    </div>`;
+  }
+
+  // Change Password modal
+  if (state.changePwModal) {
+    const cp = state.changePwModal;
+    html += `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:3000;padding:16px;">
+      <div style="background:white;border-radius:16px;padding:24px;max-width:360px;width:100%;">
+        <div style="font-size:15px;font-weight:800;color:#0f2a5e;margin-bottom:16px;">🔑 Change Password</div>
+        <div style="margin-bottom:10px;">
+          <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:4px;">YOUR NAME</div>
+          <select id="cpNameSel" style="width:100%;padding:10px;border-radius:7px;border:1px solid #cbd5e1;font-size:13px;font-family:inherit;box-sizing:border-box;">
+            <option value="">— Select your name —</option>
+            ${state.staff.map(s=>`<option value="${s.name}" ${cp.name===s.name?"selected":""}>${s.name}</option>`).join("")}
+          </select>
+        </div>
+        <div style="margin-bottom:10px;">
+          <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:4px;">CURRENT PASSWORD</div>
+          <input id="cpOldPass" type="password" placeholder="Enter current password" value="${cp.oldPass||""}"
+            oninput="state.changePwModal.oldPass=this.value"
+            style="width:100%;padding:10px;border-radius:7px;border:1px solid #cbd5e1;font-size:13px;font-family:inherit;box-sizing:border-box;"/>
+        </div>
+        <div style="margin-bottom:10px;">
+          <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:4px;">NEW PASSWORD</div>
+          <input id="cpNewPass" type="password" placeholder="Enter new password" value="${cp.newPass||""}"
+            oninput="state.changePwModal.newPass=this.value"
+            style="width:100%;padding:10px;border-radius:7px;border:1px solid #cbd5e1;font-size:13px;font-family:inherit;box-sizing:border-box;"/>
+        </div>
+        <div style="margin-bottom:16px;">
+          <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:4px;">CONFIRM NEW PASSWORD</div>
+          <input id="cpConfPass" type="password" placeholder="Confirm new password" value="${cp.confPass||""}"
+            oninput="state.changePwModal.confPass=this.value"
+            style="width:100%;padding:10px;border-radius:7px;border:1px solid ${cp.error?"#dc2626":"#cbd5e1"};font-size:13px;font-family:inherit;box-sizing:border-box;"/>
+          ${cp.error?`<div style="color:#dc2626;font-size:11px;margin-top:4px;">⚠️ ${cp.error}</div>`:""}
+          ${cp.success?`<div style="color:#16a34a;font-size:11px;margin-top:4px;">✅ ${cp.success}</div>`:""}
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button type="button" onclick="state.changePwModal=null;render()" style="flex:1;padding:11px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;cursor:pointer;font-size:13px;font-weight:600;color:#64748b;font-family:inherit;">Cancel</button>
+          <button type="button" onclick="submitChangePassword()" style="flex:1;padding:11px;border-radius:8px;border:none;background:#1d4ed8;cursor:pointer;font-size:13px;font-weight:700;color:white;font-family:inherit;">🔑 Change</button>
+        </div>
       </div>
     </div>`;
   }
@@ -1621,6 +1666,42 @@ async function submitStaffModal() {
   const staffName = sm.name;
   state.staffModal = null;
   fn(staffName);
+}
+
+function showChangePassword() {
+  state.staffModal = null;
+  state.changePwModal = { name:"", oldPass:"", newPass:"", confPass:"", error:"", success:"" };
+  render();
+}
+
+async function submitChangePassword() {
+  const cp = state.changePwModal;
+  const nameEl = document.getElementById("cpNameSel");
+  const oldEl = document.getElementById("cpOldPass");
+  const newEl = document.getElementById("cpNewPass");
+  const confEl = document.getElementById("cpConfPass");
+  if(nameEl) cp.name = nameEl.value;
+  if(oldEl) cp.oldPass = oldEl.value;
+  if(newEl) cp.newPass = newEl.value;
+  if(confEl) cp.confPass = confEl.value;
+
+  if(!cp.name) { cp.error="Please select your name"; render(); return; }
+  if(!cp.oldPass) { cp.error="Please enter your current password"; render(); return; }
+  if(!cp.newPass) { cp.error="Please enter a new password"; render(); return; }
+  if(cp.newPass.length < 4) { cp.error="New password must be at least 4 characters"; render(); return; }
+  if(cp.newPass !== cp.confPass) { cp.error="New passwords do not match"; render(); return; }
+
+  const staff = state.staff.find(s=>s.name===cp.name);
+  if(!staff) { cp.error="Staff not found"; render(); return; }
+  if(staff.password !== cp.oldPass) { cp.error="Current password is wrong"; render(); return; }
+
+  await sb.from("staff").update({ password: cp.newPass }).eq("name", cp.name);
+  state.staff = state.staff.map(s=>s.name===cp.name?{...s,password:cp.newPass}:s);
+  cp.error = "";
+  cp.success = "Password changed successfully!";
+  cp.oldPass = ""; cp.newPass = ""; cp.confPass = "";
+  render();
+  setTimeout(()=>{ state.changePwModal=null; render(); }, 2000);
 }
 
 // ── INIT ─────────────────────────────────────────────────
