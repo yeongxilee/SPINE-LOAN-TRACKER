@@ -23,7 +23,8 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; min-height: 100vh; }
+    body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; min-height: 100vh; overflow: hidden; }
+  #app { height: 100vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .app { max-width: 480px; margin: 0 auto; min-height: 100vh; }
     input, select, textarea { font-family: inherit; }
     button { font-family: inherit; cursor: pointer; }
@@ -360,6 +361,8 @@ async function deleteInvItem(setNumber) {
 
 // ── RENDER ───────────────────────────────────────────────
 function render() {
+  const _appEl = document.getElementById("app");
+  const _sy = _appEl ? _appEl.scrollTop : 0;
   const app = document.getElementById("app");
   if (state.loading) return;
 
@@ -682,7 +685,11 @@ function render() {
             </div>
             <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
               <button onclick="toggleExpand('${l.id}')" style="background:#f1f5f9;border:none;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:11px;color:#1d4ed8;font-family:inherit;font-weight:600;white-space:nowrap;">${exp?"▲":"▼ Sets"}</button>
-              ${l.status==="Out"?`<button onclick="doReturn('${l.id}')" style="${B("#16a34a","white","font-size:11px;padding:5px 8px;")}">Return</button>`:""}
+              ${(()=>{
+  const hasRepeat = (l.sets||[]).some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Repeat"; });
+  if(l.status==="Out" || hasRepeat) return `<button onclick="doReturn('${l.id}')" style="${B("#16a34a","white","font-size:11px;padding:5px 8px;")}">Return</button>`;
+  return "";
+})()}
               <button onclick="editLoan('${l.id}')" style="${B("#f1f5f9","#475569","font-size:11px;padding:5px 8px;")}">✏️</button>
               <button onclick="reqDelete('${l.id}')" style="${B("#fef2f2","#dc2626","font-size:11px;padding:5px 8px;")}">🗑️</button>
             </div>
@@ -832,7 +839,7 @@ function render() {
         const safeCat = cat.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
 
         html += `<div style="margin-bottom:8px;">
-          <div onclick="toggleCat('${safeCat}')" style="background:white;border-radius:${isCollapsed?"10px":"10px 10px 0 0"};padding:11px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border:1px solid #e2e8f0;">
+          <div onclick="event.preventDefault();toggleCat('${safeCat}')" style="background:white;border-radius:${isCollapsed?"10px":"10px 10px 0 0"};padding:11px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border:1px solid #e2e8f0;">
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
               <span style="font-weight:700;font-size:13px;color:#0f2a5e;">${cat}</span>
               <span style="font-size:11px;background:#f1f5f9;color:#475569;padding:1px 8px;border-radius:20px;font-weight:600;">${catItems.length} sets</span>
@@ -1054,7 +1061,7 @@ function render() {
           </div>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <button onclick="state.returnModal=null;render()" style="padding:12px;border-radius:8px;border:1px solid #e2e8f0;background:white;cursor:pointer;font-size:13px;font-weight:600;color:#64748b;font-family:inherit;">Cancel</button>
-            <button onclick="submitReturn()" style="padding:12px;border-radius:8px;border:none;background:#16a34a;cursor:pointer;font-size:13px;font-weight:700;color:white;font-family:inherit;">✅ Confirm Return</button>
+            <button onclick="submitReturn()" style="padding:12px;border-radius:8px;border:none;background:${r.photos.length>0?"#16a34a":"#94a3b8"};cursor:pointer;font-size:13px;font-weight:700;color:white;font-family:inherit;">✅ Confirm Return ${r.photos.length===0?"(Photo Required)":""}</button>
           </div>
         </div>
       </div>
@@ -1185,6 +1192,10 @@ function render() {
 
   html += `</div>`; // close app div
   document.getElementById("app").innerHTML = html;
+  if(_sy > 0) { 
+    const appEl = document.getElementById("app");
+    if(appEl) { appEl.scrollTop = _sy; setTimeout(()=>{ if(appEl) appEl.scrollTop = _sy; },10); }
+  }
 }
 
 // ── EVENT HANDLERS ───────────────────────────────────────
@@ -1197,10 +1208,11 @@ function updateInvAvail(v) { state.invAvail=v; render(); }
 function toggleForm() { state.showForm=!state.showForm; if(!state.showForm){state.editId=null;state.form=emptyForm();} render(); }
 function toggleExpand(id) { state.expandedId=state.expandedId===id?null:id; render(); }
 function toggleCat(cat) {
+  const scrollY = window.scrollY;
   state.collapsedCats = state.collapsedCats||{};
-  // Default is collapsed (true), toggle to false to open
   state.collapsedCats[cat] = state.collapsedCats[cat] === false ? true : false;
   render();
+  requestAnimationFrame(() => window.scrollTo(0, scrollY));
 }
 
 function updateFormField(name,val) { state.form[name]=val; }
@@ -1225,11 +1237,29 @@ function toggleSetDropCat(i, cat) {
 }
 function toggleSetDropCatByKey(e, key) {
   if(e) { e.stopPropagation(); e.preventDefault(); }
-  const scrollY = window.scrollY;
+  
+  // Find the scrollable dropdown container - walk up from clicked element
+  let scrollContainer = e.target;
+  while(scrollContainer && scrollContainer.scrollHeight <= scrollContainer.clientHeight) {
+    scrollContainer = scrollContainer.parentElement;
+  }
+  const savedScroll = scrollContainer ? scrollContainer.scrollTop : 0;
+  
   state.setDropCats = state.setDropCats||{};
   state.setDropCats[key] = !state.setDropCats[key];
   render();
-  window.scrollTo(0, scrollY);
+  
+  // Restore scroll on the same container by finding it again
+  setTimeout(()=>{
+    // Find the scrollable div inside the dropdown
+    const dropdowns = document.querySelectorAll('div[style*="max-height:280px"]');
+    dropdowns.forEach(d => {
+      const inner = d.querySelector('div[style*="overflow-y:auto"]') || d;
+      if(inner.scrollHeight > inner.clientHeight) {
+        inner.scrollTop = savedScroll;
+      }
+    });
+  }, 5);
 }
 function selectSet(i, setNum) {
   if(event) { event.stopPropagation(); event.preventDefault(); }
@@ -1296,6 +1326,10 @@ function doReturn(id) {
 }
 function submitReturn() {
   const r = state.returnModal;
+  if(!r.photos || r.photos.length === 0) {
+    alert("📷 Photo evidence is required! Please take or upload at least 1 photo before confirming return.");
+    return;
+  }
   const combined = {...(r.parkHospitals||{})};
   if (r.quarantineReasons) {
     Object.entries(r.quarantineReasons).forEach(([k,v]) => { combined["qr_"+k] = v; });
@@ -1320,7 +1354,7 @@ function editLoan(id) {
   const l=state.loans.find(x=>x.id===id);
   state.form={...l,photos:l.photos||[]};
   state.editId=id; state.showForm=true; state.tab="loans";
-  render(); window.scrollTo(0,0);
+  render(); const _a=document.getElementById("app"); if(_a) _a.scrollTop=0;
 }
 
 function openPhotoView(loanId,idx) { state.photoViewId=loanId; state.photoViewIdx=idx; render(); }
