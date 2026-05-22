@@ -752,7 +752,7 @@ function render() {
         <div style="display:flex;flex-direction:column;gap:8px;">
           ${[["setNumber","Set Number *","e.g. PSLD14"],["description","Description *","e.g. PSLD (With Hankill)"],["brand","Brand *","e.g. Maxmore"],["sn","Serial No.","e.g. I8623002"],["location","Location","e.g. Office / Penang"],["remark","Remark","e.g. Dr Chang Set"]].map(([name,label,ph])=>`
             <div><div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:2px;">${label}</div>
-            <input name="${name}" placeholder="${ph}" value="${f[name]||""}" oninput="updateInvForm('${name}',this.value)" ${state.invEditKey&&name==="setNumber"?"readonly":""} style="${S(state.invEditKey&&name==="setNumber"?"background:#f8fafc;color:#94a3b8;":"")}"/></div>
+            <input name="${name}" placeholder="${ph}" value="${f[name]||""}" oninput="updateInvForm('${name}',this.value)" style="${S()}"/></div>
           `).join("")}
           <button onclick="saveInv()" style="${B("#1d4ed8","white","padding:10px;font-size:13px;")}">
             ${state.invEditKey?"Update Item":"Add to Inventory"}
