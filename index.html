@@ -422,6 +422,10 @@ function render() {
   const filteredLoans = state.loans.filter(l=>{
     const s=state.search.toLowerCase();
     const m=l.sets?.some(st=>st.setNumber?.toLowerCase().includes(s)||st.description?.toLowerCase().includes(s))||l.hospital?.toLowerCase().includes(s)||l.surgeon?.toLowerCase().includes(s);
+    if(state.fStatus==="Repeat") {
+      const hasRepeat = (l.sets||[]).some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Repeat"; });
+      return m && hasRepeat;
+    }
     return m&&(state.fStatus==="All"||l.status===state.fStatus);
   });
 
@@ -488,6 +492,7 @@ function render() {
       <select onchange="updateFStatus(this.value)" style="${S("width:auto;padding:9px 8px;")}">
         <option ${state.fStatus==="All"?"selected":""}>All</option>
         <option ${state.fStatus==="Out"?"selected":""}>Out</option>
+        <option ${state.fStatus==="Repeat"?"selected":""}>Repeat</option>
         <option ${state.fStatus==="Returned"?"selected":""}>Returned</option>
       </select>
     </div>
@@ -504,11 +509,11 @@ function render() {
             <div><div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:2px;">${label}</div>
             <input name="${name}" placeholder="${ph}" value="${f[name]||""}" oninput="updateFormField('${name}',this.value)" style="${S()}"/></div>
           `).join("")}
-          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+          <div style="display:grid;grid-template-columns:${state.editId&&f.status==="Returned"?"1fr 1fr":"1fr"};gap:8px;">
             <div><div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:2px;">BORROW DATE *</div>
             <input type="date" value="${f.borrowDate||""}" oninput="updateFormField('borrowDate',this.value)" style="${S()}"/></div>
-            <div><div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:2px;">RETURN DATE</div>
-            <input type="date" value="${f.returnDate||""}" oninput="updateFormField('returnDate',this.value)" style="${S()}"/></div>
+            ${state.editId&&f.status==="Returned"?`<div><div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:2px;">RETURN DATE</div>
+            <input type="date" value="${f.returnDate||""}" oninput="updateFormField('returnDate',this.value)" style="${S()}"/></div>`:""}
           </div>
           <div><div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:2px;">STATUS</div>
           <select onchange="updateFormField('status',this.value)" style="${S()}">
@@ -642,19 +647,28 @@ function render() {
                 <span style="font-size:10px;background:#1d4ed8;color:white;padding:1px 7px;border-radius:20px;font-weight:700;">L${String(l.loanNumber||0).padStart(3,"0")}</span>
                 <span style="font-weight:700;font-size:13px;color:#0f2a5e;">🏥 ${l.hospital}</span>
                 <span style="font-size:10px;background:#eff6ff;color:#1d4ed8;padding:1px 7px;border-radius:20px;font-weight:700;">${l.sets?.length} sets</span>
-                <span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:${overdue?"#fef2f2":l.status==="Out"?"#fff7ed":"#f0fdf4"};color:${overdue?"#dc2626":l.status==="Out"?"#ea580c":"#16a34a"};">
-                  ${overdue?`⚠️ ${daysDiff(l.returnDate)}d overdue`:l.status==="Out"?"📤 Out":"✅ Returned"}
-                </span>
                 ${(()=>{
                   const sets = l.sets||[];
                   const hasQuarantine = sets.some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Quarantine"; });
                   const hasParked = sets.some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Parked"; });
+                  const hasRepeat = sets.some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Repeat"; });
+                  const hasOut = sets.some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Out"; });
                   const allClear = l.status==="Returned" && sets.length>0 && sets.every(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return !inv||inv.availability==="Available"; });
-                  let badges = "";
-                  if(hasQuarantine) badges += `<span style="font-size:10px;background:#fffbeb;color:#d97706;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #fde68a;animation:pulse 1.5s infinite;">🔬 Quarantine Pending</span>`;
-                  if(hasParked) badges += `<span style="font-size:10px;background:#f5f3ff;color:#7c3aed;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #ddd6fe;">🅿️ Has Parked</span>`;
-                  if(allClear && !hasQuarantine && !hasParked) badges += `<span style="font-size:10px;background:#f0fdf4;color:#16a34a;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #bbf7d0;">✅ All Good</span>`;
-                  return badges;
+                  
+                  // Main status badge
+                  let mainBadge = "";
+                  if(overdue) mainBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#fef2f2;color:#dc2626;">⚠️ ${daysDiff(l.returnDate)}d overdue</span>`;
+                  else if(l.status==="Out") mainBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#fff7ed;color:#ea580c;">📤 Out</span>`;
+                  else if(allClear) mainBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;">✅ Returned · All Good</span>`;
+                  else if(hasRepeat) mainBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#ecfeff;color:#0891b2;border:1px solid #a5f3fc;">✅ Returned · 🔁 Repeat</span>`;
+                  else mainBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#f0fdf4;color:#16a34a;">✅ Returned</span>`;
+                  
+                  let extraBadges = "";
+                  if(hasQuarantine) extraBadges += `<span style="font-size:10px;background:#fffbeb;color:#d97706;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #fde68a;animation:pulse 1.5s infinite;">🔬 Quarantine</span>`;
+                  if(hasParked) extraBadges += `<span style="font-size:10px;background:#f5f3ff;color:#7c3aed;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #ddd6fe;">🅿️ Parked</span>`;
+                  if(hasOut && l.status==="Returned") extraBadges += `<span style="font-size:10px;background:#fef2f2;color:#dc2626;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #fecaca;">🔴 Still Out</span>`;
+                  
+                  return mainBadge + extraBadges;
                 })()}
                 ${l.photos?.length>0?`<span style="font-size:10px;background:#f0fdf4;color:#16a34a;padding:1px 7px;border-radius:20px;font-weight:700;">📷 ${l.photos.length}</span>`:""}
               </div>
@@ -753,15 +767,28 @@ function render() {
     <button onclick="toggleInvForm()" style="${B("#1d4ed8","white","width:100%;padding:10px;font-size:13px;margin-bottom:10px;")}">
       ${state.showInvForm?"✕ Cancel":(state.invUnlocked?"🔓 Add New Set":"🔒 Add New Set")}
     </button>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:10px;">
-      ${Object.entries(AVAIL).map(([key,cfg])=>{
-        const count=state.inventory.filter(i=>(i.availability||"Available")===key).length;
-        return `<div onclick="updateInvAvail('${key}')" style="background:${cfg.bg};border-radius:10px;padding:10px 4px;text-align:center;border:2px solid ${(state.invAvail||'All')===key?cfg.color:cfg.color+'44'};cursor:pointer;box-shadow:${(state.invAvail||'All')===key?"0 2px 8px "+cfg.color+"44":"none"};">
-          <div style="font-size:18px;">${cfg.icon}</div>
-          <div style="font-size:20px;font-weight:800;color:${cfg.color};">${count}</div>
-          <div style="font-size:9px;color:${cfg.color};font-weight:700;letter-spacing:0.3px;">${cfg.label}</div>
-        </div>`;
-      }).join("")}
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:6px;">
+      ${(()=>{
+        const tiles = [
+          {key:"Available", cfg:AVAIL["Available"]},
+          {key:"Out", cfg:AVAIL["Out"], extra:"Repeat"},
+          {key:"Quarantine", cfg:AVAIL["Quarantine"]},
+          {key:"Parked", cfg:AVAIL["Parked"]},
+          {key:"Repeat", cfg:AVAIL["Repeat"]},
+        ];
+        return tiles.map(({key,cfg,extra})=>{
+          const count = state.inventory.filter(i=>(i.availability||"Available")===key).length;
+          const extraCount = extra ? state.inventory.filter(i=>i.availability===extra).length : 0;
+          const totalCount = count + extraCount;
+          const label = extra && extraCount>0 ? cfg.label+"/"+AVAIL[extra].label : cfg.label;
+          const isActive = (state.invAvail||"All")===key;
+          return `<div onclick="updateInvAvail('${key}')" style="background:${cfg.bg};border-radius:10px;padding:10px 4px;text-align:center;border:2px solid ${isActive?cfg.color:cfg.color+'44'};cursor:pointer;box-shadow:${isActive?"0 2px 8px "+cfg.color+"44":"none"};">
+            <div style="font-size:18px;">${cfg.icon}${extra&&extraCount>0?"🔁":""}</div>
+            <div style="font-size:20px;font-weight:800;color:${cfg.color};">${totalCount}</div>
+            <div style="font-size:9px;color:${cfg.color};font-weight:700;letter-spacing:0.3px;">${label}</div>
+          </div>`;
+        }).join("");
+      })()}
     </div>
     <div style="display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap;">
       <button onclick="updateInvAvail('All')" style="padding:4px 10px;border-radius:20px;border:1px solid ${(state.invAvail||'All')==='All'?'#1d4ed8':'#e2e8f0'};background:${(state.invAvail||'All')==='All'?'#eff6ff':'white'};color:${(state.invAvail||'All')==='All'?'#1d4ed8':'#64748b'};font-size:11px;font-weight:${(state.invAvail||'All')==='All'?700:400};cursor:pointer;font-family:inherit;">All</button>
