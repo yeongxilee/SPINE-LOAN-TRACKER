@@ -200,11 +200,11 @@ async function saveLoan() {
     if (valid.length) await sb.from("loan_sets").insert(valid.map(s=>({ loan_id:loanId, set_number:s.setNumber, description:s.description, brand:s.brand, sn:s.sn, condition:s.condition })));
     if (state.form.photos.length) await sb.from("loan_photos").insert(state.form.photos.map(p=>({ loan_id:loanId, photo_url:p.dataUrl, taken_at:p.ts })));
     await sb.from("activity_log").insert({ action:state.editId?"Updated":"Loaned Out", hospital:state.form.hospital, surgeon:state.form.surgeon, pic:state.form.pic, set_numbers:valid.map(s=>s.setNumber).join(", "), set_count:valid.length, has_photo:state.form.photos.length>0 });
-    // Update inventory availability
+    // Update inventory availability - batch update
     if (!state.editId) {
-      for (const s of valid) {
-        await sb.from("inventory").update({availability:"Out"}).eq("set_number", s.setNumber);
-      }
+      await Promise.all(valid.map(s => 
+        sb.from("inventory").update({availability:"Out"}).eq("set_number", s.setNumber)
+      ));
     }
     toast(state.editId?"✅ Loan updated!":"✅ Loan saved!");
     const f2 = state.form;
