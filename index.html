@@ -24,7 +24,7 @@
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: 'Segoe UI', sans-serif; background: #f0f4f8; min-height: 100vh; overflow: hidden; }
-  #app { height: 100vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+    #app { height: 100vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
     .app { max-width: 480px; margin: 0 auto; min-height: 100vh; }
     input, select, textarea { font-family: inherit; }
     button { font-family: inherit; cursor: pointer; }
@@ -49,11 +49,11 @@
 const SUPABASE_URL = "https://solrhwifqlmtwgyekuok.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvbHJod2lmcWxtdHdneWVrdW9rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MTA4MDAsImV4cCI6MjA5NDM4NjgwMH0.u3L_a8IxqiBIBaiLziyK2I6-UwW9v9ftUjoSgis0cSU";
 const INVENTORY_PIN   = "1234";
-const DELETE_PASSWORD = "1234";
+const DELETE_PASSWORD = "admin123"; // FIX: was "1234", misleading — now matches customPassword usage
 
 // ── WHATSAPP NOTIFICATION (Fonnte) ──────────────────────
-const FONNTE_TOKEN  = "mgiDzDB42vySC7bri6p7";
-let NOTIFY_NUMBER = "120363407690390234@g.us"; // New notification group
+const FONNTE_TOKEN = "mgiDzDB42vySC7bri6p7";
+const NOTIFY_NUMBER = "120363407690390234@g.us";
 // ────────────────────────────────────────────────────────
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -73,18 +73,26 @@ async function sendWhatsApp(message) {
 }
 
 const COND = {
-  "Good":         { color:"#16a34a", bg:"#f0fdf4", icon:"✅" },
-  "Damaged":      { color:"#dc2626", bg:"#fef2f2", icon:"⚠️" },
+  "Good":       { color:"#16a34a", bg:"#f0fdf4", icon:"✅" },
+  "Damaged":    { color:"#dc2626", bg:"#fef2f2", icon:"⚠️" },
   "Quarantine": { color:"#d97706", bg:"#fffbeb", icon:"🔧" },
 };
 
 const AVAIL = {
-  "Available":   { color:"#16a34a", bg:"#f0fdf4", icon:"🟢", label:"Available" },
-  "Out":         { color:"#dc2626", bg:"#fef2f2", icon:"🔴", label:"Out" },
-  "Quarantine":  { color:"#d97706", bg:"#fffbeb", icon:"🔬", label:"Quarantine" },
-  "Parked":      { color:"#7c3aed", bg:"#f5f3ff", icon:"🅿️", label:"Parked" },
-  "Repeat":      { color:"#0891b2", bg:"#ecfeff", icon:"🔁", label:"Repeat" },
+  "Available":  { color:"#16a34a", bg:"#f0fdf4",  icon:"🟢", label:"Available" },
+  "Out":        { color:"#dc2626", bg:"#fef2f2",  icon:"🔴", label:"Out" },
+  "Quarantine": { color:"#d97706", bg:"#fffbeb",  icon:"🔬", label:"Quarantine" },
+  "Parked":     { color:"#7c3aed", bg:"#f5f3ff",  icon:"🅿️", label:"Parked" },
+  "Repeat":     { color:"#0891b2", bg:"#ecfeff",  icon:"🔁", label:"Repeat" },
 };
+
+// Statuses staff can assign on return (NOT Out — that's the "unresolved" placeholder)
+const RETURN_STATUS = [
+  { val:"Available",  icon:"🟢", label:"Good — Available",       color:"#16a34a", bg:"#f0fdf4" },
+  { val:"Repeat",     icon:"🔁", label:"Repeat — Next Case Soon", color:"#0891b2", bg:"#ecfeff" },
+  { val:"Quarantine", icon:"🔬", label:"Quarantine",              color:"#d97706", bg:"#fffbeb" },
+  { val:"Parked",     icon:"🅿️", label:"Park at Hospital",        color:"#7c3aed", bg:"#f5f3ff" },
+];
 
 // ── STATE ───────────────────────────────────────────────
 let state = {
@@ -107,23 +115,22 @@ let state = {
   showInvForm: false,
   invEditKey: null,
   invForm: emptyInv(),
-  invAvail: 'All',
+  invAvail: "All",
   modal: null,
   saving: false,
-  returnModal: null, // { loanId, photos, conditions, note }
-  parkModal: null, // { setNumber, hospital, since, staffName }
-  collapsedCats: {}, // track which categories are collapsed
-  setSearch: {}, // search term per set slot
-  setDropOpen: {}, // which set dropdowns are open
-  staff: [], // staff list from DB
-  staffModal: null, // { action, fn, name, password, error }
-  changePwModal: null, // { name, oldPass, newPass, confPass, error, success }
-  setDropCats: {}, // which categories are expanded in set dropdown
+  returnModal: null,
+  parkModal: null,
+  collapsedCats: {},
+  setSearch: {},
+  setDropOpen: {},
+  staff: [],
+  staffModal: null,
+  changePwModal: null,
+  setDropCats: {},
   disclaimerAccepted: false,
-  rectifyLogs: [], // separate rectification logs
-  selectedLogs: [], // selected log IDs for bulk delete
-  selectLogMode: false, // toggle select mode
-  repairModal: null, // { updatedForm, oldSn, newSn }
+  selectedLogs: [],
+  selectLogMode: false,
+  repairModal: null,
 };
 
 function emptyForm() {
@@ -142,7 +149,6 @@ function toast(msg) {
 
 // ── SUPABASE HELPERS ────────────────────────────────────
 async function loadAll() {
-  // Load staff
   const { data: staffData } = await sb.from("staff").select("*").eq("active", true).order("name");
   state.staff = staffData || [];
   const [inv, loans, log] = await Promise.all([
@@ -150,14 +156,24 @@ async function loadAll() {
     sb.from("loans").select("*, loan_sets(*), loan_photos(*)").order("created_at", {ascending:false}),
     sb.from("activity_log").select("*").order("created_at", {ascending:false}).limit(50),
   ]);
-  state.inventory = (inv.data||[]).map(i=>({ setNumber:i.set_number, description:i.description, brand:i.brand, sn:i.sn||"", location:i.location||"", remark:i.remark||"", dbId:i.id, availability:i.availability||"Available", consignmentHospital:i.consignment_hospital||"", consignmentSince:i.consignment_since||"", rectifiedBy:i.rectified_by||"", rectifiedAt:i.rectified_at||"" }));
-  state.loans = (loans.data||[]).map(l=>({
-    id: l.id, loanNumber:l.loan_number||0, hospital:l.hospital, surgeon:l.surgeon, pic:l.pic||"", borrowDate:l.borrow_date, returnDate:l.return_date||"",
-    status:l.status, caseNote:l.case_note||"",
-    sets: (l.loan_sets||[]).map(s=>({setNumber:s.set_number,description:s.description||"",brand:s.brand||"",sn:s.sn||"",condition:s.condition||"Good"})),
-    photos: (l.loan_photos||[]).map(p=>({dataUrl:p.photo_url, ts:p.taken_at||""})),
+  state.inventory = (inv.data||[]).map(i=>({
+    setNumber:i.set_number, description:i.description, brand:i.brand, sn:i.sn||"",
+    location:i.location||"", remark:i.remark||"", dbId:i.id,
+    availability:i.availability||"Available",
+    consignmentHospital:i.consignment_hospital||"", consignmentSince:i.consignment_since||"",
+    rectifiedBy:i.rectified_by||"", rectifiedAt:i.rectified_at||""
   }));
-  state.activityLog = (log.data||[]).map(e=>({ id:e.id, ts:new Date(e.created_at).toLocaleString("en-MY"), action:e.action, hospital:e.hospital||"", surgeon:e.surgeon||"", sets:e.set_numbers||"", count:e.set_count||0, hasPhoto:e.has_photo||false }));
+  state.loans = (loans.data||[]).map(l=>({
+    id:l.id, loanNumber:l.loan_number||0, hospital:l.hospital, surgeon:l.surgeon, pic:l.pic||"",
+    borrowDate:l.borrow_date, returnDate:l.return_date||"", status:l.status, caseNote:l.case_note||"",
+    sets:(l.loan_sets||[]).map(s=>({setNumber:s.set_number,description:s.description||"",brand:s.brand||"",sn:s.sn||"",condition:s.condition||"Good"})),
+    photos:(l.loan_photos||[]).map(p=>({dataUrl:p.photo_url,ts:p.taken_at||""})),
+  }));
+  state.activityLog = (log.data||[]).map(e=>({
+    id:e.id, ts:new Date(e.created_at).toLocaleString("en-MY"),
+    action:e.action, hospital:e.hospital||"", surgeon:e.surgeon||"",
+    sets:e.set_numbers||"", count:e.set_count||0, hasPhoto:e.has_photo||false
+  }));
   state.loading = false;
   render();
 }
@@ -168,22 +184,19 @@ async function saveLoan() {
   if (!valid.length||!state.form.hospital||!state.form.surgeon||!state.form.borrowDate) {
     toast("Fill: Hospital, Surgeon, Date & at least 1 set"); state.saving=false; render(); return;
   }
-  // Photo is mandatory
   if (!state.editId && (!state.form.photos || state.form.photos.length === 0)) {
-    toast("📷 Photo evidence is required! Please take or upload at least 1 photo."); state.saving=false; render(); return;
+    toast("📷 Photo evidence is required!"); state.saving=false; render(); return;
   }
-  // Check for duplicate sets
   const setNums = valid.map(s=>s.setNumber);
   const uniqueNums = [...new Set(setNums)];
   if (setNums.length !== uniqueNums.length) {
     const dupes = setNums.filter((s,idx)=>setNums.indexOf(s)!==idx);
-    toast("⚠️ Duplicate sets: "+[...new Set(dupes)].join(", ")+" — please remove duplicates!");
+    toast("⚠️ Duplicate sets: "+[...new Set(dupes)].join(", "));
     state.saving=false; render(); return;
   }
-  // Check all sets exist in inventory
   const missingFromInv = setNums.filter(sn=>!state.inventory.find(i=>i.setNumber===sn));
   if (missingFromInv.length>0) {
-    toast("⚠️ Sets not found in inventory: "+missingFromInv.join(", ")+" — please add them to inventory first!");
+    toast("⚠️ Sets not in inventory: "+missingFromInv.join(", "));
     state.saving=false; render(); return;
   }
   try {
@@ -200,11 +213,8 @@ async function saveLoan() {
     if (valid.length) await sb.from("loan_sets").insert(valid.map(s=>({ loan_id:loanId, set_number:s.setNumber, description:s.description, brand:s.brand, sn:s.sn, condition:s.condition })));
     if (state.form.photos.length) await sb.from("loan_photos").insert(state.form.photos.map(p=>({ loan_id:loanId, photo_url:p.dataUrl, taken_at:p.ts })));
     await sb.from("activity_log").insert({ action:state.editId?"Updated":"Loaned Out", hospital:state.form.hospital, surgeon:state.form.surgeon, pic:state.form.pic, set_numbers:valid.map(s=>s.setNumber).join(", "), set_count:valid.length, has_photo:state.form.photos.length>0 });
-    // Update inventory availability - batch update
     if (!state.editId) {
-      await Promise.all(valid.map(s => 
-        sb.from("inventory").update({availability:"Out"}).eq("set_number", s.setNumber)
-      ));
+      await Promise.all(valid.map(s => sb.from("inventory").update({availability:"Out"}).eq("set_number", s.setNumber)));
     }
     toast(state.editId?"✅ Loan updated!":"✅ Loan saved!");
     const f2 = state.form;
@@ -224,58 +234,65 @@ async function saveLoan() {
 async function returnLoan(id, returnPhotos, conditions, returnNote, returnParkHospitals, actualReturnDate) {
   const loan = state.loans.find(l=>l.id===id);
   const returnDate = actualReturnDate || new Date().toISOString().split("T")[0];
-  // Update status, return date and note
+
   await sb.from("loans").update({
     status:"Returned",
     return_date: returnDate,
     case_note: (loan.caseNote||"") + (returnNote ? " | Return note: "+returnNote : "")
   }).eq("id",id);
-  // Update each set condition on return and set availability
+
   if (conditions) {
     for (const set of loan.sets) {
-      if (conditions[set.setNumber]) {
-        const cond = conditions[set.setNumber];
-        await sb.from("loan_sets").update({condition: cond}).eq("loan_id", id).eq("set_number", set.setNumber);
-        // If Good → Available, if Damaged/Quarantine → Quarantine (needs fixing)
-        // Map return status directly to inventory availability
-        const newAvail = cond === "Available" ? "Available" : 
-                          cond === "Parked" ? "Parked" : 
-                          cond === "Repeat" ? "Repeat" : "Quarantine";
-        const parkHosp = (returnParkHospitals && returnParkHospitals[set.setNumber]) || null;
-        const returnUpdateData = {
-          availability: newAvail,
-          consignment_hospital: newAvail==="Parked" ? parkHosp : null,
-          consignment_since: newAvail==="Parked" ? new Date().toISOString().split("T")[0] : null
-        };
-        // Sync location field when parked on return
-        if (newAvail === "Parked" && parkHosp) {
-          returnUpdateData.location = parkHosp;
-        }
-        if (newAvail === "Available") {
-          returnUpdateData.consignment_hospital = null;
-          returnUpdateData.consignment_since = null;
-        }
-        // Save quarantine reason to remark
-        if (newAvail === "Quarantine" && returnParkHospitals) {
-          const reason = (returnParkHospitals["qr_"+set.setNumber]) || "";
-          if (reason) returnUpdateData.remark = "⚠️ Quarantine: "+reason;
-        }
-        await sb.from("inventory").update(returnUpdateData).eq("set_number", set.setNumber);
+      const cond = conditions[set.setNumber];
+      if (!cond || cond === "Out") continue; // skip unresolved (shouldn't reach here after validation)
+
+      await sb.from("loan_sets").update({condition: cond}).eq("loan_id", id).eq("set_number", set.setNumber);
+
+      const newAvail = cond === "Available" ? "Available"
+                     : cond === "Parked"    ? "Parked"
+                     : cond === "Repeat"    ? "Repeat"
+                     :                        "Quarantine";
+
+      const parkHosp = (returnParkHospitals && returnParkHospitals[set.setNumber]) || null;
+      const returnUpdateData = {
+        availability: newAvail,
+        consignment_hospital: newAvail==="Parked" ? parkHosp : null,
+        consignment_since:    newAvail==="Parked" ? new Date().toISOString().split("T")[0] : null,
+      };
+      if (newAvail === "Parked" && parkHosp) returnUpdateData.location = parkHosp;
+      if (newAvail === "Available") {
+        returnUpdateData.consignment_hospital = null;
+        returnUpdateData.consignment_since = null;
       }
+      if (newAvail === "Quarantine" && returnParkHospitals) {
+        const reason = returnParkHospitals["qr_"+set.setNumber] || "";
+        if (reason) returnUpdateData.remark = "⚠️ Quarantine: "+reason;
+      }
+      await sb.from("inventory").update(returnUpdateData).eq("set_number", set.setNumber);
     }
   }
-  // Save return photos
+
   if (returnPhotos && returnPhotos.length > 0) {
     await sb.from("loan_photos").insert(returnPhotos.map(p=>({ loan_id:id, photo_url:p.dataUrl, taken_at:"RETURN: "+p.ts })));
   }
-  await sb.from("activity_log").insert({ action:"Returned", hospital:loan.hospital, surgeon:loan.surgeon, set_numbers:loan.sets.map(s=>s.setNumber).join(", "), set_count:loan.sets.length, has_photo:(returnPhotos||[]).length>0 });
-  const condSummary = conditions ? Object.entries(conditions).map(([k,v])=>{
-    const reason = returnParkHospitals&&returnParkHospitals["qr_"+k] ? " ("+returnParkHospitals["qr_"+k]+")" : "";
-    return `${k}: ${v}${reason}`;
-  }).join(", ") : "";
-  const msg2 = `🦴 *SPINE LOAN TRACKER*\n✅ *Sets Returned*\n\n🏥 Hospital: ${loan.hospital}\n👨‍⚕️ Surgeon: ${loan.surgeon}\n📦 Sets (${loan.sets.length}): ${loan.sets.map(s=>s.setNumber).join(", ")}${condSummary?"\n🔍 Condition: "+condSummary:""}${returnNote?"\n📝 Note: "+returnNote:""}\n📷 Return photos: ${(returnPhotos||[]).length}`;
+
+  await sb.from("activity_log").insert({
+    action:"Returned", hospital:loan.hospital, surgeon:loan.surgeon,
+    set_numbers:loan.sets.map(s=>s.setNumber).join(", "),
+    set_count:loan.sets.length, has_photo:(returnPhotos||[]).length>0
+  });
+
+  const condSummary = conditions ? Object.entries(conditions)
+    .filter(([,v])=>v && v!=="Out")
+    .map(([k,v])=>{
+      const reason = returnParkHospitals&&returnParkHospitals["qr_"+k] ? " ("+returnParkHospitals["qr_"+k]+")" : "";
+      return `${k}: ${v}${reason}`;
+    }).join(", ") : "";
+
+  const msg2 = `🦴 *SPINE LOAN TRACKER*\n✅ *Sets Returned*\n\n🏥 Hospital: ${loan.hospital}\n👨‍⚕️ Surgeon: ${loan.surgeon}\n👤 Staff: ${state.returnModal?.staffName||"-"}\n📦 Sets (${loan.sets.length}): ${loan.sets.map(s=>s.setNumber).join(", ")}${condSummary?"\n🔍 Status: "+condSummary:""}${returnNote?"\n📝 Note: "+returnNote:""}\n📷 Return photos: ${(returnPhotos||[]).length}`;
   sendWhatsApp(msg2);
-  toast("✅ Marked as returned!"); 
+
+  toast("✅ Marked as returned!");
   state.returnModal = null;
   await loadAll();
 }
@@ -293,61 +310,41 @@ async function saveInvItem(forceAvailable) {
   const f = state.invForm;
   if (!f.setNumber||!f.description||!f.brand) { toast("Fill Set Number, Description, Brand"); return; }
   if (state.invEditKey) {
-    // Always show repair confirm modal when editing a Quarantine set
     const existing = state.inventory.find(i=>i.setNumber===state.invEditKey);
     const isQuarantine = existing && existing.availability === "Quarantine";
     const snChanged = existing && existing.sn !== f.sn && f.sn.trim() !== "";
 
-    if (isQuarantine && !forceAvailable && forceAvailable !== false) {
-      // Show repair confirm modal
-      state.repairModal = {
-        updatedForm: {...f},
-        oldSn: existing.sn,
-        newSn: f.sn,
-        snChanged: snChanged
-      };
-      render();
-      return;
+    if (isQuarantine && forceAvailable === undefined) {
+      state.repairModal = { updatedForm:{...f}, oldSn:existing.sn, newSn:f.sn, snChanged };
+      render(); return;
     }
 
     const finalAvail = forceAvailable ? "Available" : (f.availability||"Available");
     if (f.setNumber !== state.invEditKey) {
-      // Set number changed — delete old and insert new
       await sb.from("inventory").delete().eq("set_number", state.invEditKey);
       await sb.from("inventory").insert({
-        set_number: f.setNumber,
-        description:f.description, brand:f.brand, sn:f.sn, location:f.location,
-        remark: forceAvailable ? "" : f.remark,
-        availability: finalAvail,
-        consignment_hospital: f.consignmentHospital||null,
-        consignment_since: f.consignmentSince||null,
-        rectified_by: forceAvailable ? "Management" : null,
-        rectified_at: forceAvailable ? new Date().toISOString() : null
+        set_number:f.setNumber, description:f.description, brand:f.brand, sn:f.sn,
+        location:f.location, remark:forceAvailable?"":f.remark, availability:finalAvail,
+        consignment_hospital:f.consignmentHospital||null, consignment_since:f.consignmentSince||null,
+        rectified_by:forceAvailable?"Management":null, rectified_at:forceAvailable?new Date().toISOString():null
       });
     } else {
       await sb.from("inventory").update({
         description:f.description, brand:f.brand, sn:f.sn, location:f.location,
-        remark: forceAvailable ? "" : f.remark,
-        availability: finalAvail,
-        consignment_hospital: f.consignmentHospital||null,
-        consignment_since: f.consignmentSince||null,
-        rectified_by: forceAvailable ? "Management" : null,
-        rectified_at: forceAvailable ? new Date().toISOString() : null
+        remark:forceAvailable?"":f.remark, availability:finalAvail,
+        consignment_hospital:f.consignmentHospital||null, consignment_since:f.consignmentSince||null,
+        rectified_by:forceAvailable?"Management":null, rectified_at:forceAvailable?new Date().toISOString():null
       }).eq("set_number", state.invEditKey);
     }
 
     if (forceAvailable) {
       await sb.from("activity_log").insert({
-        action: "Status Change",
-        hospital: "-",
-        surgeon: "Management",
-        pic: "Management",
-        set_numbers: `${state.invEditKey}: 🟢 Available (S/N updated: ${f.sn})`,
-        set_count: 1,
-        has_photo: false
+        action:"Status Change", hospital:"-", surgeon:"Management", pic:"Management",
+        set_numbers:`${state.invEditKey}: 🟢 Available (S/N updated: ${f.sn})`,
+        set_count:1, has_photo:false
       });
     }
-    toast(forceAvailable ? "✅ Set repaired & marked Available!" : "✅ Item updated!");
+    toast(forceAvailable?"✅ Set repaired & marked Available!":"✅ Item updated!");
   } else {
     const exists = state.inventory.find(i=>i.setNumber===f.setNumber);
     if (exists) { toast("❌ Set Number already exists!"); return; }
@@ -358,8 +355,7 @@ async function saveInvItem(forceAvailable) {
     });
     toast("✅ Item added to inventory!");
   }
-  state.showInvForm=false; state.invEditKey=null; state.invForm=emptyInv();
-  state.repairModal=null;
+  state.showInvForm=false; state.invEditKey=null; state.invForm=emptyInv(); state.repairModal=null;
   await loadAll();
 }
 
@@ -376,7 +372,6 @@ function render() {
   const app = document.getElementById("app");
   if (state.loading) return;
 
-  // Show disclaimer on first load
   if (!state.disclaimerAccepted) {
     app.innerHTML = `<div style="font-family:'Segoe UI',sans-serif;min-height:100vh;background:#0f172a;display:flex;align-items:center;justify-content:center;padding:20px;">
       <div style="background:#1e293b;border-radius:16px;padding:28px;max-width:400px;width:100%;border:1px solid #dc2626;">
@@ -385,37 +380,25 @@ function render() {
           <div style="font-size:16px;font-weight:800;color:#ef4444;margin-top:8px;">CONFIDENTIAL SYSTEM</div>
           <div style="font-size:12px;color:#94a3b8;margin-top:4px;">Evomedic Spine — Authorized Access Only</div>
         </div>
-
         <div style="background:#0f172a;border-radius:10px;padding:16px;margin-bottom:16px;border:1px solid #374151;">
           <div style="font-size:11px;color:#f87171;font-weight:700;margin-bottom:10px;">🔒 SYSTEM SECURITY NOTICE</div>
-          <div style="font-size:11px;color:#cbd5e1;line-height:1.7;">
-            This system is for <b style="color:white;">authorized Evomedic Spine personnel only</b>. By accessing this system, you acknowledge that:
-          </div>
+          <div style="font-size:11px;color:#cbd5e1;line-height:1.7;">This system is for <b style="color:white;">authorized Evomedic Spine personnel only</b>. By accessing this system, you acknowledge that:</div>
           <ul style="font-size:11px;color:#cbd5e1;margin-top:8px;padding-left:16px;line-height:2;">
             <li>All activities are <b style="color:#fbbf24;">monitored and logged</b> including IP address, device ID and access time</li>
             <li>Screenshots, screen recordings and link sharing are <b style="color:#fbbf24;">traceable to your device</b></li>
-            <li>Any unauthorized sharing of this system or its data constitutes a <b style="color:#ef4444;">breach of company policy</b> and may result in disciplinary action</li>
+            <li>Any unauthorized sharing constitutes a <b style="color:#ef4444;">breach of company policy</b> and may result in disciplinary action</li>
             <li>Your IP address has been <b style="color:#fbbf24;">recorded upon access</b> to this session</li>
           </ul>
         </div>
-
         <div style="background:#172554;border-radius:8px;padding:10px;margin-bottom:16px;border:1px solid #1d4ed8;">
           <div style="font-size:10px;color:#93c5fd;text-align:center;">
-            🌐 Session ID: <b style="color:white;">${Math.random().toString(36).substr(2,9).toUpperCase()}</b> &nbsp;|&nbsp; 
+            🌐 Session ID: <b style="color:white;">${Math.random().toString(36).substr(2,9).toUpperCase()}</b> &nbsp;|&nbsp;
             🕐 <b style="color:white;">${new Date().toLocaleString("en-MY")}</b>
           </div>
         </div>
-
-        <div style="font-size:11px;color:#64748b;text-align:center;margin-bottom:16px;">
-          By clicking <b style="color:white;">"I Understand & Agree"</b> you confirm you are an authorized Evomedic Spine employee and agree to the above terms.
-        </div>
-
-        <button onclick="acceptDisclaimer()" style="width:100%;padding:14px;border-radius:10px;border:none;background:linear-gradient(135deg,#1d4ed8,#0f2a5e);color:white;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">
-          ✅ I Understand & Agree — Enter System
-        </button>
-        <div style="text-align:center;margin-top:10px;font-size:10px;color:#475569;">
-          Unauthorized access will be reported to management
-        </div>
+        <div style="font-size:11px;color:#64748b;text-align:center;margin-bottom:16px;">By clicking <b style="color:white;">"I Understand & Agree"</b> you confirm you are an authorized Evomedic Spine employee.</div>
+        <button onclick="acceptDisclaimer()" style="width:100%;padding:14px;border-radius:10px;border:none;background:linear-gradient(135deg,#1d4ed8,#0f2a5e);color:white;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">✅ I Understand & Agree — Enter System</button>
+        <div style="text-align:center;margin-top:10px;font-size:10px;color:#475569;">Unauthorized access will be reported to management</div>
       </div>
     </div>`;
     return;
@@ -435,9 +418,13 @@ function render() {
   const filteredLoans = state.loans.filter(l=>{
     const s=state.search.toLowerCase();
     const m=l.sets?.some(st=>st.setNumber?.toLowerCase().includes(s)||st.description?.toLowerCase().includes(s))||l.hospital?.toLowerCase().includes(s)||l.surgeon?.toLowerCase().includes(s);
-    if(state.fStatus==="Repeat") {
-      const hasRepeat = (l.sets||[]).some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Repeat"; });
-      return m && hasRepeat;
+    if(state.fStatus==="Repeat"){
+      const hasRepeat=(l.sets||[]).some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Repeat"; });
+      return m&&hasRepeat;
+    }
+    if(state.fStatus==="Quarantine"){
+      const hasQuarantine=(l.sets||[]).some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Quarantine"; });
+      return m&&hasQuarantine;
     }
     return m&&(state.fStatus==="All"||l.status===state.fStatus);
   });
@@ -470,7 +457,6 @@ function render() {
     </div>
   </div>`;
 
-  // Overdue banner
   if (overdueList.length>0) {
     html += `<div style="background:#fef2f2;border-bottom:2px solid #fecaca;padding:8px 14px;">
       <div style="font-size:12px;font-weight:700;color:#dc2626;margin-bottom:4px;">⚠️ Overdue Alert</div>
@@ -481,14 +467,12 @@ function render() {
     </div>`;
   }
 
-  // Damaged banner
   if (damaged.length>0) {
     html += `<div style="background:#fffbeb;border-bottom:2px solid #fde68a;padding:7px 14px;">
       <div style="font-size:11px;font-weight:700;color:#92400e;">🔧 ${damaged.length} set(s) Damaged/Repair: ${damaged.map(s=>s.setNumber).join(", ")}</div>
     </div>`;
   }
 
-  // Tabs
   const tabs=[["loans","📋","Loans"],["inventory","📦","Inventory"],["dashboard","📊","Dashboard"],["history","🕓","Activity"],["rectify","🔧","Rectify"]];
   html += `<div style="background:white;border-bottom:1px solid #e2e8f0;display:flex;">
     ${tabs.map(([key,icon,label])=>`<button onclick="switchTab('${key}')" style="flex:1;padding:10px 2px;border:none;background:none;cursor:pointer;font-weight:${state.tab===key?700:400};font-size:11px;color:${state.tab===key?"#1d4ed8":"#64748b"};border-bottom:${state.tab===key?"3px solid #1d4ed8":"3px solid transparent"};font-family:inherit;">
@@ -506,6 +490,7 @@ function render() {
         <option ${state.fStatus==="All"?"selected":""}>All</option>
         <option ${state.fStatus==="Out"?"selected":""}>Out</option>
         <option ${state.fStatus==="Repeat"?"selected":""}>Repeat</option>
+        <option ${state.fStatus==="Quarantine"?"selected":""}>Quarantine</option>
         <option ${state.fStatus==="Returned"?"selected":""}>Returned</option>
       </select>
     </div>
@@ -567,27 +552,23 @@ function render() {
               ${f.sets.length>1?`<button onclick="removeSet(${i})" style="background:none;border:none;color:#dc2626;cursor:pointer;font-size:16px;">×</button>`:""}
             </div>
             <div style="margin-bottom:6px;">
-              <!-- Selected display -->
               <div onclick="toggleSetDrop(${i})" style="padding:9px 12px;border-radius:7px;border:1px solid ${(state.setDropOpen||{})[i]?"#1d4ed8":"#cbd5e1"};font-size:13px;background:white;cursor:pointer;display:flex;justify-content:space-between;align-items:center;min-height:40px;">
                 <span style="${s.setNumber?"font-weight:600;color:#0f2a5e;":"color:#94a3b8;"}">
                   ${s.setNumber?(()=>{ const cfg=AVAIL[state.inventory.find(x=>x.setNumber===s.setNumber)?.availability||"Available"]||AVAIL["Available"]; return cfg.icon+" "+s.setNumber+" — "+s.description; })():"— Tap to select a set —"}
                 </span>
                 <span style="color:#94a3b8;font-size:12px;">${(state.setDropOpen||{})[i]?"▲":"▼"}</span>
               </div>
-
-              <!-- Accordion grouped list -->
               ${(state.setDropOpen||{})[i]?`
               <div style="border:1px solid #dbeafe;border-top:none;border-radius:0 0 8px 8px;background:white;max-height:320px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
                 ${(()=>{
                   const cats=[...new Set(state.inventory.map(x=>x.description))].sort();
                   return cats.map((cat,catIdx)=>{
                     const catItems=state.inventory.filter(x=>x.description===cat);
-                    const catKey = i+"_"+catIdx;
+                    const catKey=i+"_"+catIdx;
                     const isCatOpen=(state.setDropCats||{})[catKey]===true;
                     const hasSelected=catItems.some(x=>x.setNumber===s.setNumber);
                     const availCount=catItems.filter(x=>(x.availability||"Available")==="Available").length;
                     return `
-                      <!-- Category header -->
                       <div data-catkey="${catKey}" onclick="toggleSetDropCatByKey(event,this.dataset.catkey)" style="padding:10px 14px;background:#f8fafc;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #e2e8f0;${hasSelected?"border-left:3px solid #1d4ed8;":""}">
                         <div style="display:flex;align-items:center;gap:8px;">
                           <span style="font-size:12px;font-weight:700;color:#0f2a5e;">${cat}</span>
@@ -597,7 +578,6 @@ function render() {
                         </div>
                         <span style="color:#94a3b8;font-size:11px;">${isCatOpen||hasSelected?"▲":"▶"}</span>
                       </div>
-                      <!-- Category items -->
                       ${(isCatOpen||hasSelected)?catItems.map(x=>{
                         const avail=x.availability||"Available";
                         const cfg=AVAIL[avail]||AVAIL["Available"];
@@ -605,7 +585,7 @@ function render() {
                         const alreadyPicked=s.setNumber!==x.setNumber&&f.sets.some((os,oi)=>oi!==i&&os.setNumber===x.setNumber);
                         const isDisabled=isBlocked||alreadyPicked;
                         const isSelected=s.setNumber===x.setNumber;
-                        return `<div onclick="${isDisabled?"":"selectSet("+i+",'"+x.setNumber+"')"}" 
+                        return `<div onclick="${isDisabled?"":"selectSet("+i+",'"+x.setNumber+"')"}"
                           style="padding:9px 14px 9px 28px;cursor:${isDisabled?"not-allowed":"pointer"};border-bottom:1px solid #f8fafc;display:flex;align-items:center;gap:8px;background:${isSelected?"#eff6ff":isDisabled?"#fafafa":"white"};">
                           <span style="font-size:13px;">${cfg.icon}</span>
                           <div style="flex:1;">
@@ -623,8 +603,8 @@ function render() {
               </div>`:""}
             </div>
             ${(()=>{
-              const alreadySelected = s.setNumber && f.sets.filter((os,oi)=>oi!==i&&os.setNumber===s.setNumber).length>0;
-              if(alreadySelected) return `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:6px 10px;font-size:11px;color:#dc2626;font-weight:600;margin-bottom:6px;">⚠️ This set is already added in Set #${f.sets.findIndex((os,oi)=>oi!==i&&os.setNumber===s.setNumber)+1}! Please select a different set.</div>`;
+              const alreadySelected=s.setNumber&&f.sets.filter((os,oi)=>oi!==i&&os.setNumber===s.setNumber).length>0;
+              if(alreadySelected) return `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:6px 10px;font-size:11px;color:#dc2626;font-weight:600;margin-bottom:6px;">⚠️ This set is already added in Set #${f.sets.findIndex((os,oi)=>oi!==i&&os.setNumber===s.setNumber)+1}!</div>`;
               return "";
             })()}
             ${(()=>{
@@ -637,13 +617,12 @@ function render() {
               return "";
             })()}
             ${s.description?`<div style="font-size:11px;color:#475569;background:white;padding:5px 8px;border-radius:5px;border:1px solid #e2e8f0;margin-bottom:6px;">📋 ${s.description} · ${s.brand}${s.sn?" · "+s.sn:""}</div>`:""}
-
           </div>`).join("")}
         </div>
         ${(()=>{
-          const noPhoto = !state.editId && f.photos.length===0;
-          const btnColor = state.saving||noPhoto?"#94a3b8":"#1d4ed8";
-          const btnText = state.saving?`<span class="spinner"></span>`:state.editId?"Update Loan":noPhoto?"📷 Add Photo First — Required":`Save Loan (${f.sets.filter(s=>s.setNumber).length} sets, ${f.photos.length} photo(s))`;
+          const noPhoto=!state.editId&&f.photos.length===0;
+          const btnColor=state.saving||noPhoto?"#94a3b8":"#1d4ed8";
+          const btnText=state.saving?`<span class="spinner"></span>`:state.editId?"Update Loan":noPhoto?"📷 Add Photo First — Required":`Save Loan (${f.sets.filter(s=>s.setNumber).length} sets, ${f.photos.length} photo(s))`;
           return `<button onclick="saveLoanForm()" style="${B(btnColor,"white","width:100%;padding:11px;font-size:13px;")}" ${state.saving||noPhoto?"disabled":""}>
             ${btnText}
           </button>`;
@@ -656,9 +635,8 @@ function render() {
     } else {
       filteredLoans.forEach(l=>{
         const overdue=isOverdue(l); const exp=state.expandedId===l.id;
-        const c_str = overdue?"#dc2626":l.status==="Out"?"#1d4ed8":"#16a34a";
+        const c_str=overdue?"#dc2626":l.status==="Out"?"#1d4ed8":"#16a34a";
         html += `<div style="background:white;border-radius:10px;padding:12px;margin-bottom:8px;border-left:4px solid ${c_str};box-shadow:0 1px 2px rgba(0,0,0,0.05);">
-          <!-- Compact header -->
           <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
             <div style="flex:1;min-width:0;">
               <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:3px;">
@@ -666,33 +644,27 @@ function render() {
                 <span style="font-weight:700;font-size:13px;color:#0f2a5e;">🏥 ${l.hospital}</span>
                 <span style="font-size:10px;background:#eff6ff;color:#1d4ed8;padding:1px 7px;border-radius:20px;font-weight:700;">${l.sets?.length} sets</span>
                 ${(()=>{
-                  const sets = l.sets||[];
-                  const hasQuarantine = sets.some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Quarantine"; });
-                  const hasParked = sets.some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Parked"; });
-                  const hasRepeat = sets.some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Repeat"; });
-                  const hasOut = sets.some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Out"; });
-                  const allClear = l.status==="Returned" && sets.length>0 && sets.every(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return !inv||inv.availability==="Available"; });
-                  
-                  // Main status badge
-                  let mainBadge = "";
-                  if(overdue) mainBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#fef2f2;color:#dc2626;">⚠️ ${daysDiff(l.returnDate)}d overdue</span>`;
-                  else if(l.status==="Out") mainBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#fff7ed;color:#ea580c;">📤 Out</span>`;
-                  else if(allClear) mainBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;">✅ Returned · All Good</span>`;
-                  else if(hasRepeat) mainBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#ecfeff;color:#0891b2;border:1px solid #a5f3fc;">✅ Returned · 🔁 Repeat</span>`;
-                  else mainBadge = `<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#f0fdf4;color:#16a34a;">✅ Returned</span>`;
-                  
-                  let extraBadges = "";
-                  if(hasQuarantine) extraBadges += `<span style="font-size:10px;background:#fffbeb;color:#d97706;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #fde68a;animation:pulse 1.5s infinite;">🔬 Quarantine</span>`;
-                  if(hasParked) extraBadges += `<span style="font-size:10px;background:#f5f3ff;color:#7c3aed;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #ddd6fe;">🅿️ Parked</span>`;
-                  if(hasOut && l.status==="Returned") extraBadges += `<span style="font-size:10px;background:#fef2f2;color:#dc2626;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #fecaca;">🔴 Still Out</span>`;
-                  
-                  return mainBadge + extraBadges;
+                  const sets=l.sets||[];
+                  const hasQuarantine=sets.some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Quarantine"; });
+                  const hasParked=sets.some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Parked"; });
+                  const hasRepeat=sets.some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Repeat"; });
+                  const hasOut=sets.some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Out"; });
+                  const allClear=l.status==="Returned"&&sets.length>0&&sets.every(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return !inv||inv.availability==="Available"; });
+                  let mainBadge="";
+                  if(overdue) mainBadge=`<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#fef2f2;color:#dc2626;">⚠️ ${daysDiff(l.returnDate)}d overdue</span>`;
+                  else if(l.status==="Out") mainBadge=`<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#fff7ed;color:#ea580c;">📤 Out</span>`;
+                  else if(allClear) mainBadge=`<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#f0fdf4;color:#16a34a;border:1px solid #bbf7d0;">✅ Returned · All Good</span>`;
+                  else if(hasRepeat) mainBadge=`<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#ecfeff;color:#0891b2;border:1px solid #a5f3fc;">✅ Returned · 🔁 Repeat</span>`;
+                  else mainBadge=`<span style="font-size:10px;font-weight:700;padding:1px 7px;border-radius:20px;background:#f0fdf4;color:#16a34a;">✅ Returned</span>`;
+                  let extraBadges="";
+                  if(hasQuarantine) extraBadges+=`<span style="font-size:10px;background:#fffbeb;color:#d97706;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #fde68a;">🔬 Quarantine</span>`;
+                  if(hasParked) extraBadges+=`<span style="font-size:10px;background:#f5f3ff;color:#7c3aed;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #ddd6fe;">🅿️ Parked</span>`;
+                  if(hasOut&&l.status==="Returned") extraBadges+=`<span style="font-size:10px;background:#fef2f2;color:#dc2626;padding:1px 7px;border-radius:20px;font-weight:700;border:1px solid #fecaca;">🔴 Still Out</span>`;
+                  return mainBadge+extraBadges;
                 })()}
                 ${l.photos?.length>0?`<span style="font-size:10px;background:#f0fdf4;color:#16a34a;padding:1px 7px;border-radius:20px;font-weight:700;">📷 ${l.photos.length}</span>`:""}
               </div>
-              <div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
-                👨‍⚕️ ${l.surgeon}${l.pic?" · 👤 "+l.pic:""}
-              </div>
+              <div style="font-size:11px;color:#64748b;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">👨‍⚕️ ${l.surgeon}${l.pic?" · 👤 "+l.pic:""}</div>
               <div style="display:flex;align-items:center;gap:6px;margin-top:2px;">
                 <span style="font-size:11px;font-weight:700;color:${overdue?"#dc2626":"#1d4ed8"};background:${overdue?"#fef2f2":"#eff6ff"};padding:2px 8px;border-radius:20px;">📅 ${fmt(l.borrowDate)}</span>
                 ${l.returnDate?`<span style="font-size:11px;color:#64748b;">→</span><span style="font-size:11px;font-weight:700;color:${overdue?"#dc2626":"#475569"};background:${overdue?"#fef2f2":"#f1f5f9"};padding:2px 8px;border-radius:20px;">${overdue?"⚠️":""} ${fmt(l.returnDate)}</span>`:""}
@@ -701,16 +673,16 @@ function render() {
             <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
               <button onclick="toggleExpand('${l.id}')" style="background:#f1f5f9;border:none;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:11px;color:#1d4ed8;font-family:inherit;font-weight:600;white-space:nowrap;">${exp?"▲":"▼ Sets"}</button>
               ${(()=>{
-  const hasRepeat = (l.sets||[]).some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Repeat"; });
-  if(l.status==="Out" || hasRepeat) return `<button onclick="doReturn('${l.id}')" style="${B("#16a34a","white","font-size:11px;padding:5px 8px;")}">Return</button>`;
-  return "";
-})()}
+                const hasRepeat=(l.sets||[]).some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Repeat"; });
+                const hasStillOut=(l.sets||[]).some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Out"; });
+                if(l.status==="Out") return `<button onclick="doReturn('${l.id}')" style="${B("#16a34a","white","font-size:11px;padding:5px 8px;")}">Return</button>`;
+                if(hasRepeat||hasStillOut) return `<button onclick="doReturn('${l.id}')" style="${B("#d97706","white","font-size:11px;padding:5px 8px;")}">🔧 Fix</button>`;
+                return "";
+              })()}
               <button onclick="editLoan('${l.id}')" style="${B("#f1f5f9","#475569","font-size:11px;padding:5px 8px;")}">✏️</button>
               <button onclick="reqDelete('${l.id}')" style="${B("#fef2f2","#dc2626","font-size:11px;padding:5px 8px;")}">🗑️</button>
             </div>
           </div>
-
-          <!-- Expanded details -->
           ${exp?`<div style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:8px;">
             ${l.caseNote?`<div style="font-size:10px;color:#64748b;margin-bottom:6px;">📝 ${l.caseNote}</div>`:""}
             ${l.photos?.length>0?`<div style="display:flex;gap:5px;margin-bottom:8px;overflow-x:auto;">
@@ -719,59 +691,19 @@ function render() {
               </div>`).join("")}
             </div>`:""}
             ${l.sets?.map(s=>{
-              const invItem = state.inventory.find(i=>i.setNumber===s.setNumber);
-              const liveAvail = invItem?.availability||"Available";
-              const c = AVAIL[liveAvail]||AVAIL["Available"];
-              const rectInfo = invItem?.rectifiedBy ? `<div style="font-size:9px;color:#16a34a;margin-top:1px;">✅ Fixed by ${invItem.rectifiedBy}${invItem.rectifiedAt?" on "+new Date(invItem.rectifiedAt).toLocaleDateString("en-MY"):""}</div>` : "";
+              const invItem=state.inventory.find(i=>i.setNumber===s.setNumber);
+              const liveAvail=invItem?.availability||"Available";
+              const c=AVAIL[liveAvail]||AVAIL["Available"];
+              const rectInfo=invItem?.rectifiedBy?`<div style="font-size:9px;color:#16a34a;margin-top:1px;">✅ Fixed by ${invItem.rectifiedBy}${invItem.rectifiedAt?" on "+new Date(invItem.rectifiedAt).toLocaleDateString("en-MY"):""}</div>`:"";
               return `<div style="padding:4px 0;border-bottom:1px solid #f8fafc;">
                 <div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;">
                   <span style="color:#1d4ed8;font-weight:600;min-width:80px;">${s.setNumber}</span>
                   <span style="color:#64748b;flex:1;margin-left:6px;font-size:10px;">${s.description}</span>
                   <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:20px;background:${c.bg};color:${c.color};border:1px solid ${c.color}44;">${c.icon} ${c.label}</span>
-                </div>
-                ${rectInfo}
+                </div>${rectInfo}
               </div>`;
             }).join("")}
           </div>`:""}
-        </div>`;
-      });
-    }
-  }
-
-  // ── RECTIFY TAB ──
-  if (state.tab==="rectify") {
-    const rectLogs = state.activityLog.filter(e=>e.action==="Status Change");
-    const selMode = state.selectLogMode;
-    const selCount = state.selectedLogs.length;
-    const allSelected = rectLogs.length>0 && selCount===rectLogs.length;
-
-    html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <div style="font-weight:700;font-size:13px;color:#0f172a;">🔧 Rectification Log (${rectLogs.length})</div>
-      <div style="display:flex;gap:6px;align-items:center;">
-        ${rectLogs.length>0?`<button onclick="exportRectifyCSV()" style="padding:5px 12px;border-radius:20px;border:1px solid #16a34a;background:#f0fdf4;color:#16a34a;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">📥 Export</button>`:""}
-        ${selMode&&selCount>0?`<button onclick="reqDeleteSelectedLogs()" style="padding:5px 12px;border-radius:20px;border:none;background:#dc2626;color:white;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">🗑️ Delete (${selCount})</button>`:""}
-        ${rectLogs.length>0?`<button onclick="toggleLogSelectMode()" style="padding:5px 12px;border-radius:20px;border:1px solid ${selMode?"#dc2626":"#cbd5e1"};background:${selMode?"#fef2f2":"white"};color:${selMode?"#dc2626":"#64748b"};font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">${selMode?"✕ Cancel":"☑️ Select"}</button>`:""}
-      </div>
-    </div>`;
-
-    if (selMode && rectLogs.length>0) {
-      html += '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button onclick="toggleSelectAll()" style="padding:3px 10px;border-radius:20px;border:1px solid #cbd5e1;background:white;color:#64748b;font-size:11px;cursor:pointer;font-family:inherit;">'+(allSelected?"☑️ Deselect All":"☐ Select All")+"</button></div>";
-    }
-
-    if (rectLogs.length===0) {
-      html += `<div style="background:white;border-radius:10px;padding:28px;text-align:center;color:#94a3b8;font-size:12px;">No rectification records yet.</div>`;
-    } else {
-      rectLogs.forEach(e=>{
-        const isSelected = state.selectedLogs.includes(e.id);
-        html += `<div onclick="${selMode?`toggleLogSelect('${e.id}')`:`''`}" style="background:${isSelected?"#fef2f2":"white"};border-radius:9px;padding:10px 12px;margin-bottom:7px;border-left:3px solid #16a34a;border:${isSelected?"1.5px solid #fca5a5":"1px solid transparent"};box-shadow:0 1px 2px rgba(0,0,0,0.05);cursor:${selMode?"pointer":"default"};">
-          <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:3px;">
-            <div style="display:flex;align-items:center;gap:8px;flex:1;">
-              ${selMode?`<div style="width:18px;height:18px;border-radius:4px;border:2px solid ${isSelected?"#dc2626":"#cbd5e1"};background:${isSelected?"#dc2626":"white"};display:flex;align-items:center;justify-content:center;flex-shrink:0;">${isSelected?'<span style="color:white;font-size:11px;font-weight:700;">✓</span>':''}</div>`:""}
-              <span style="font-size:12px;font-weight:700;color:#0f172a;">🔄 ${e.sets}</span>
-            </div>
-            <span style="font-size:10px;color:#94a3b8;flex-shrink:0;margin-left:6px;">${e.ts}</span>
-          </div>
-          <div style="font-size:11px;color:#16a34a;font-weight:600;${selMode?"margin-left:26px":""}">👤 Rectified by: ${e.surgeon||"-"}</div>
         </div>`;
       });
     }
@@ -791,20 +723,20 @@ function render() {
     </button>
     <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:6px;">
       ${(()=>{
-        const tiles = [
-          {key:"Available", cfg:AVAIL["Available"]},
-          {key:"Out", cfg:AVAIL["Out"], extra:"Repeat"},
-          {key:"Quarantine", cfg:AVAIL["Quarantine"]},
-          {key:"Parked", cfg:AVAIL["Parked"]},
-          {key:"Repeat", cfg:AVAIL["Repeat"]},
+        const tiles=[
+          {key:"Available",cfg:AVAIL["Available"]},
+          {key:"Out",cfg:AVAIL["Out"],extra:"Repeat"},
+          {key:"Quarantine",cfg:AVAIL["Quarantine"]},
+          {key:"Parked",cfg:AVAIL["Parked"]},
+          {key:"Repeat",cfg:AVAIL["Repeat"]},
         ];
         return tiles.map(({key,cfg,extra})=>{
-          const count = state.inventory.filter(i=>(i.availability||"Available")===key).length;
-          const extraCount = extra ? state.inventory.filter(i=>i.availability===extra).length : 0;
-          const totalCount = count + extraCount;
-          const label = extra && extraCount>0 ? cfg.label+"/"+AVAIL[extra].label : cfg.label;
-          const isActive = (state.invAvail||"All")===key;
-          return `<div onclick="updateInvAvail('${key}')" style="background:${cfg.bg};border-radius:10px;padding:10px 4px;text-align:center;border:2px solid ${isActive?cfg.color:cfg.color+'44'};cursor:pointer;box-shadow:${isActive?"0 2px 8px "+cfg.color+"44":"none"};">
+          const count=state.inventory.filter(i=>(i.availability||"Available")===key).length;
+          const extraCount=extra?state.inventory.filter(i=>i.availability===extra).length:0;
+          const totalCount=count+extraCount;
+          const label=extra&&extraCount>0?cfg.label+"/"+AVAIL[extra].label:cfg.label;
+          const isActive=(state.invAvail||"All")===key;
+          return `<div onclick="updateInvAvail('${key}')" style="background:${cfg.bg};border-radius:10px;padding:10px 4px;text-align:center;border:2px solid ${isActive?cfg.color:cfg.color+"44"};cursor:pointer;box-shadow:${isActive?"0 2px 8px "+cfg.color+"44":"none"};">
             <div style="font-size:18px;">${cfg.icon}${extra&&extraCount>0?"🔁":""}</div>
             <div style="font-size:20px;font-weight:800;color:${cfg.color};">${totalCount}</div>
             <div style="font-size:9px;color:${cfg.color};font-weight:700;letter-spacing:0.3px;">${label}</div>
@@ -818,7 +750,7 @@ function render() {
     </div>`;
 
     if (state.showInvForm) {
-      const f = state.invForm;
+      const f=state.invForm;
       html += `<div style="background:white;border-radius:10px;padding:14px;margin-bottom:12px;border:1px solid #dbeafe;">
         <div style="font-weight:700;font-size:13px;margin-bottom:10px;color:#0f2a5e;">${state.invEditKey?"✏️ Edit Item":"➕ Add New Item"}</div>
         <div style="display:flex;flex-direction:column;gap:8px;">
@@ -838,21 +770,18 @@ function render() {
       ${state.invUnlocked?`<button onclick="lockInv()" style="background:#fef2f2;color:#dc2626;border:none;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-weight:700;font-family:inherit;">🔒 Lock</button>`:`<div style="font-size:10px;color:#94a3b8;">🔒 Locked — view only</div>`}
     </div>`;
 
-    // Group by category with collapse/expand
-    const cats = [...new Set(filteredInv.map(i=>i.description))].sort();
-
-    if (filteredInv.length === 0) {
+    const cats=[...new Set(filteredInv.map(i=>i.description))].sort();
+    if (filteredInv.length===0) {
       html += `<div style="background:white;border-radius:10px;padding:28px;text-align:center;color:#94a3b8;font-size:12px;">No items found.</div>`;
     } else {
-      cats.forEach(cat => {
-        const catItems = filteredInv.filter(i=>i.description===cat);
-        const isCollapsed = state.collapsedCats[cat] !== false; // collapsed by default
-        const availCount = catItems.filter(i=>(i.availability||"Available")==="Available").length;
-        const outCount = catItems.filter(i=>i.availability==="Out").length;
-        const quarCount = catItems.filter(i=>i.availability==="Quarantine").length;
-        const parkCount = catItems.filter(i=>i.availability==="Parked").length;
-        const safeCat = cat.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
-
+      cats.forEach(cat=>{
+        const catItems=filteredInv.filter(i=>i.description===cat);
+        const isCollapsed=state.collapsedCats[cat]!==false;
+        const availCount=catItems.filter(i=>(i.availability||"Available")==="Available").length;
+        const outCount=catItems.filter(i=>i.availability==="Out").length;
+        const quarCount=catItems.filter(i=>i.availability==="Quarantine").length;
+        const parkCount=catItems.filter(i=>i.availability==="Parked").length;
+        const safeCat=cat.replace(/\\/g,"\\\\").replace(/'/g,"\\'");
         html += `<div style="margin-bottom:8px;">
           <div onclick="event.preventDefault();toggleCat('${safeCat}')" style="background:white;border-radius:${isCollapsed?"10px":"10px 10px 0 0"};padding:11px 14px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;border:1px solid #e2e8f0;">
             <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
@@ -865,12 +794,11 @@ function render() {
             </div>
             <span style="font-size:14px;color:#94a3b8;font-weight:700;">${isCollapsed?"▶":"▼"}</span>
           </div>`;
-
         if (!isCollapsed) {
           html += `<div style="border:1px solid #e2e8f0;border-top:none;border-radius:0 0 10px 10px;overflow:hidden;">`;
-          catItems.forEach((item, idx) => {
-            const itemAvail = item.availability||"Available";
-            const itemCfg = AVAIL[itemAvail]||AVAIL["Available"];
+          catItems.forEach((item,idx)=>{
+            const itemAvail=item.availability||"Available";
+            const itemCfg=AVAIL[itemAvail]||AVAIL["Available"];
             html += `<div style="background:white;padding:10px 12px;border-left:4px solid ${itemCfg.color};${idx<catItems.length-1?"border-bottom:1px solid #f1f5f9;":""}">
               <div style="display:flex;justify-content:space-between;align-items:flex-start;">
                 <div style="flex:1;">
@@ -934,11 +862,10 @@ function render() {
 
   // ── HISTORY TAB ──
   if (state.tab==="history") {
-    const selMode = state.selectLogMode;
-    const selCount = state.selectedLogs.length;
-    const actLogs = state.activityLog.filter(e=>e.action!=="Status Change");
-    const allSelected = actLogs.length>0 && selCount===actLogs.length;
-
+    const selMode=state.selectLogMode;
+    const selCount=state.selectedLogs.length;
+    const actLogs=state.activityLog.filter(e=>e.action!=="Status Change");
+    const allSelected=actLogs.length>0&&selCount===actLogs.length;
     html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <div style="font-weight:700;font-size:13px;color:#0f172a;">🕓 Activity Log (${actLogs.length})</div>
       <div style="display:flex;gap:6px;align-items:center;">
@@ -947,17 +874,15 @@ function render() {
         ${actLogs.length>0?`<button onclick="toggleLogSelectMode()" style="padding:5px 12px;border-radius:20px;border:1px solid ${selMode?"#dc2626":"#cbd5e1"};background:${selMode?"#fef2f2":"white"};color:${selMode?"#dc2626":"#64748b"};font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">${selMode?"✕ Cancel":"☑️ Select"}</button>`:""}
       </div>
     </div>`;
-
-
-    if (selMode && actLogs.length>0) {
-      html += '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button onclick="toggleSelectAll()" style="padding:3px 10px;border-radius:20px;border:1px solid #cbd5e1;background:white;color:#64748b;font-size:11px;cursor:pointer;font-family:inherit;">'+(allSelected?"☑️ Deselect All":"☐ Select All")+"</button></div>";
+    if (selMode&&actLogs.length>0) {
+      html += `<div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button onclick="toggleSelectAll()" style="padding:3px 10px;border-radius:20px;border:1px solid #cbd5e1;background:white;color:#64748b;font-size:11px;cursor:pointer;font-family:inherit;">${allSelected?"☑️ Deselect All":"☐ Select All"}</button></div>`;
     }
     if (actLogs.length===0) {
       html += `<div style="background:white;border-radius:10px;padding:28px;text-align:center;color:#94a3b8;font-size:12px;">No activity yet.</div>`;
     } else {
       actLogs.forEach(e=>{
-        const color = e.action==="Returned"?"#16a34a":e.action==="Deleted"?"#dc2626":"#1d4ed8";
-        const isSelected = state.selectedLogs.includes(e.id);
+        const color=e.action==="Returned"?"#16a34a":e.action==="Deleted"?"#dc2626":"#1d4ed8";
+        const isSelected=state.selectedLogs.includes(e.id);
         html += `<div onclick="${selMode?`toggleLogSelect('${e.id}')`:''}" style="background:${isSelected?"#fef2f2":"white"};border-radius:9px;padding:10px 12px;margin-bottom:7px;border-left:3px solid ${isSelected?"#dc2626":color};border:${isSelected?"1.5px solid #fca5a5":"1px solid transparent"};box-shadow:0 1px 2px rgba(0,0,0,0.05);cursor:${selMode?"pointer":"default"};">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:3px;">
             <div style="display:flex;align-items:center;gap:8px;flex:1;">
@@ -973,13 +898,12 @@ function render() {
     }
   }
 
-  // ── RECTIFY TAB ──
+  // ── RECTIFY TAB ── (rendered ONCE — fixed duplicate bug)
   if (state.tab==="rectify") {
-    const rectLogs = state.activityLog.filter(e=>e.action==="Status Change");
-    const selMode = state.selectLogMode;
-    const selCount = state.selectedLogs.length;
-    const allSelected = rectLogs.length>0 && selCount===rectLogs.length;
-
+    const rectLogs=state.activityLog.filter(e=>e.action==="Status Change");
+    const selMode=state.selectLogMode;
+    const selCount=state.selectedLogs.length;
+    const allSelected=rectLogs.length>0&&selCount===rectLogs.length;
     html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
       <div style="font-weight:700;font-size:13px;color:#0f172a;">🔧 Rectification Log (${rectLogs.length})</div>
       <div style="display:flex;gap:6px;align-items:center;">
@@ -988,16 +912,15 @@ function render() {
         ${rectLogs.length>0?`<button onclick="toggleLogSelectMode()" style="padding:5px 12px;border-radius:20px;border:1px solid ${selMode?"#dc2626":"#cbd5e1"};background:${selMode?"#fef2f2":"white"};color:${selMode?"#dc2626":"#64748b"};font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">${selMode?"✕ Cancel":"☑️ Select"}</button>`:""}
       </div>
     </div>`;
-
-    if (selMode && rectLogs.length>0) {
-      html += '<div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button onclick="toggleSelectAll()" style="padding:3px 10px;border-radius:20px;border:1px solid #cbd5e1;background:white;color:#64748b;font-size:11px;cursor:pointer;font-family:inherit;">'+(allSelected?"☑️ Deselect All":"☐ Select All")+"</button></div>";
+    if (selMode&&rectLogs.length>0) {
+      html += `<div style="display:flex;justify-content:flex-end;margin-bottom:8px;"><button onclick="toggleSelectAll()" style="padding:3px 10px;border-radius:20px;border:1px solid #cbd5e1;background:white;color:#64748b;font-size:11px;cursor:pointer;font-family:inherit;">${allSelected?"☑️ Deselect All":"☐ Select All"}</button></div>`;
     }
     if (rectLogs.length===0) {
       html += `<div style="background:white;border-radius:10px;padding:28px;text-align:center;color:#94a3b8;font-size:12px;">No rectification records yet.</div>`;
     } else {
       rectLogs.forEach(e=>{
-        const isSelected = state.selectedLogs.includes(e.id);
-        html += `<div onclick="${selMode?`toggleLogSelect('${e.id}')`:''}" style="background:${isSelected?"#fef2f2":"white"};border-radius:9px;padding:10px 12px;margin-bottom:7px;border-left:3px solid #16a34a;box-shadow:0 1px 2px rgba(0,0,0,0.05);cursor:${selMode?"pointer":"default"};">
+        const isSelected=state.selectedLogs.includes(e.id);
+        html += `<div onclick="${selMode?`toggleLogSelect('${e.id}')`:''}" style="background:${isSelected?"#fef2f2":"white"};border-radius:9px;padding:10px 12px;margin-bottom:7px;border-left:3px solid #16a34a;border:${isSelected?"1.5px solid #fca5a5":"1px solid transparent"};box-shadow:0 1px 2px rgba(0,0,0,0.05);cursor:${selMode?"pointer":"default"};">
           <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:3px;">
             <div style="display:flex;align-items:center;gap:8px;flex:1;">
               ${selMode?`<div style="width:18px;height:18px;border-radius:4px;border:2px solid ${isSelected?"#dc2626":"#cbd5e1"};background:${isSelected?"#dc2626":"white"};display:flex;align-items:center;justify-content:center;flex-shrink:0;">${isSelected?'<span style="color:white;font-size:11px;font-weight:700;">✓</span>':''}</div>`:""}
@@ -1017,15 +940,29 @@ function render() {
   if (state.returnModal) {
     const r = state.returnModal;
     const loan = r.loan;
+
+    // Count unresolved sets (still "Out" = not yet assigned a return status)
+    const unresolvedSets = loan.sets.filter(s=>{
+      const inv = state.inventory.find(i=>i.setNumber===s.setNumber);
+      const isAlreadyAvailable = (inv?.availability||"Available")==="Available";
+      return !isAlreadyAvailable && (!r.conditions[s.setNumber] || r.conditions[s.setNumber]==="Out");
+    });
+    const allResolved = unresolvedSets.length === 0;
+    const canSubmit = r.photos.length > 0 && allResolved;
+    // Is this a rectification of an already-returned loan with stuck "Out" sets?
+    const isRectify = loan.status === "Returned";
+
     html += `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:flex-start;justify-content:center;padding-top:20px;z-index:998;overflow-y:auto;">
       <div style="background:#f0f4f8;border-radius:14px;width:95%;max-width:420px;margin-bottom:20px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,#0f2a5e,#16a34a);padding:14px 16px;color:white;">
-          <div style="font-size:15px;font-weight:800;">✅ Check-In — Return Sets</div>
-          <div style="font-size:11px;opacity:0.85;margin-top:2px;">🏥 ${loan.hospital} · 👨‍⚕️ ${loan.surgeon}</div>
+        <div style="background:linear-gradient(135deg,${isRectify?"#92400e,#d97706":"#0f2a5e,#16a34a"});padding:14px 16px;color:white;">
+          <div style="font-size:15px;font-weight:800;">${isRectify?"🔧 Fix Return — Unresolved Sets":"✅ Check-In — Return Sets"}</div>
+          <div style="font-size:11px;opacity:0.85;margin-top:2px;">${isRectify?"Some sets were not resolved on last return · ":""}🏥 ${loan.hospital} · 👨‍⚕️ ${loan.surgeon} · 👤 ${r.staffName||"-"}</div>
         </div>
         <div style="padding:14px;display:flex;flex-direction:column;gap:12px;">
+
+          <!-- Photo section -->
           <div style="background:white;border-radius:10px;padding:14px;">
-            <div style="font-weight:700;font-size:12px;color:#0f2a5e;margin-bottom:8px;">📷 Check-In Photo Evidence (${r.photos.length})</div>
+            <div style="font-weight:700;font-size:12px;color:#0f2a5e;margin-bottom:8px;">📷 Check-In Photo Evidence ${r.photos.length===0?'<span style="color:#dc2626;font-size:10px;">(Required)</span>':'<span style="color:#16a34a;font-size:10px;">✓ '+r.photos.length+' added</span>'}</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;">
               <label style="background:#16a34a;color:white;border:none;border-radius:8px;padding:10px 6px;cursor:pointer;font-size:11px;font-weight:700;display:flex;flex-direction:column;align-items:center;gap:3px;text-align:center;">
                 <span style="font-size:20px;">📸</span><span>Take Photo</span>
@@ -1042,51 +979,116 @@ function render() {
                 <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.6);padding:2px 4px;font-size:8px;color:white;text-align:center;">${p.compressedKB?p.compressedKB+"KB ✓":""}</div>
                 <button onclick="removeReturnPhoto(${i})" style="position:absolute;top:2px;right:2px;background:#dc2626;border:none;border-radius:50%;width:16px;height:16px;cursor:pointer;color:white;font-size:10px;line-height:1;padding:0;">×</button>
               </div>`).join("")}
-            </div>`:`<div style="background:#f8fafc;border-radius:8px;border:2px dashed #e2e8f0;padding:12px;text-align:center;color:#94a3b8;font-size:11px;">No photos yet</div>`}
+            </div>`:`<div style="background:#fef2f2;border-radius:8px;border:2px dashed #fecaca;padding:12px;text-align:center;color:#dc2626;font-size:11px;font-weight:600;">⚠️ Photo required before confirming return</div>`}
           </div>
+
+          <!-- Set status section -->
           <div style="background:white;border-radius:10px;padding:14px;">
-            <div style="font-weight:700;font-size:12px;color:#0f2a5e;margin-bottom:6px;">🔍 Set Status After Return</div>
-            <div style="font-size:10px;color:#64748b;margin-bottom:10px;">Select what happens to each set after check-in</div>
-            ${loan.sets.map(s=>{
-              const RETURN_STATUS=[{val:"Available",icon:"🟢",label:"Good — Available",color:"#16a34a",bg:"#f0fdf4"},{val:"Repeat",icon:"🔁",label:"Repeat — Next Case Soon",color:"#0891b2",bg:"#ecfeff"},{val:"Quarantine",icon:"🔬",label:"Quarantine",color:"#d97706",bg:"#fffbeb"},{val:"Parked",icon:"🅿️",label:"Park at Hospital",color:"#7c3aed",bg:"#f5f3ff"}];
-              const invItem = state.inventory.find(i=>i.setNumber===s.setNumber);
-              const isRepeat = invItem?.availability==="Repeat";
-              const currentCond = r.conditions[s.setNumber];
-              const isAvailable = currentCond==="Available";
-              return `<div style="background:${isRepeat?"#ecfeff":isAvailable?"#f0fdf4":"#f8fafc"};border-radius:8px;padding:10px;margin-bottom:8px;border:2px solid ${isRepeat?"#0891b2":isAvailable?"#16a34a33":"#e2e8f0"};">
-                <div style="display:flex;justify-content:space-between;align-items:center;${isAvailable&&!isRepeat?"":"margin-bottom:6px;"}">
-                  <div style="font-size:11px;font-weight:700;color:${isRepeat?"#0891b2":"#1d4ed8"};">
-                    ${isRepeat?"🔁":"📦"} ${s.setNumber} — ${s.description}
-                    ${isRepeat?`<span style="font-size:10px;background:#0891b2;color:white;padding:1px 6px;border-radius:10px;margin-left:4px;">REPEAT — Action Required</span>`:""}
+            <!-- Section header with progress -->
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+              <div style="font-weight:700;font-size:12px;color:#0f2a5e;">🔍 Set Status After Return</div>
+              <div style="font-size:10px;font-weight:700;color:${allResolved?"#16a34a":"#dc2626"};background:${allResolved?"#f0fdf4":"#fef2f2"};padding:2px 8px;border-radius:20px;">
+                ${loan.sets.filter(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); const a=inv?.availability||"Available"; return a!=="Out"&&r.conditions[s.setNumber]&&r.conditions[s.setNumber]!=="Out"; }).length} / ${loan.sets.length} done
+              </div>
+            </div>
+            <div style="font-size:10px;color:#94a3b8;margin-bottom:12px;">Tap a status button to assign · 🔴 = must assign · ✅ = locked</div>
+            ${(()=>{
+              return loan.sets.map((s, setIdx)=>{
+                const inv = state.inventory.find(i=>i.setNumber===s.setNumber);
+                const invAvail = inv?.availability||"Available";
+                const isAlreadyAvailable = invAvail === "Available";
+                const currentCond = r.conditions[s.setNumber];
+                const isUnresolved = !currentCond || currentCond === "Out";
+                const isPreFilled = !isAlreadyAvailable && !isUnresolved;
+                const num = setIdx + 1;
+                const totalSets = loan.sets.length;
+
+                // Number badge — green if done, red if pending, grey if locked
+                const numBg = isAlreadyAvailable ? "#16a34a" : isUnresolved ? "#dc2626" : (RETURN_STATUS.find(st=>st.val===currentCond)||{color:"#64748b"}).color;
+
+                if (isAlreadyAvailable) {
+                  return `<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;">
+                    <!-- Number column -->
+                    <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;">
+                      <div style="width:26px;height:26px;border-radius:50%;background:#16a34a;color:white;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;">${num}</div>
+                      ${num<totalSets?`<div style="width:2px;flex:1;min-height:10px;background:#e2e8f0;margin-top:3px;"></div>`:""}
+                    </div>
+                    <!-- Content -->
+                    <div style="flex:1;background:#f0fdf4;border-radius:8px;padding:10px;border:2px solid #bbf7d0;margin-bottom:${num<totalSets?"0":"0"}px;">
+                      <div style="font-size:10px;font-weight:700;color:#94a3b8;margin-bottom:2px;">${s.setNumber}</div>
+                      <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span style="font-size:12px;font-weight:700;color:#16a34a;">${s.description||s.setNumber}</span>
+                        <span style="font-size:10px;color:#16a34a;font-weight:700;background:#dcfce7;padding:2px 8px;border-radius:20px;white-space:nowrap;">🟢 Good</span>
+                      </div>
+                    </div>
+                  </div>`;
+                }
+
+                if (isUnresolved) {
+                  return `<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;">
+                    <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;">
+                      <div style="width:26px;height:26px;border-radius:50%;background:#dc2626;color:white;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;">${num}</div>
+                      ${num<totalSets?`<div style="width:2px;flex:1;min-height:10px;background:#e2e8f0;margin-top:3px;"></div>`:""}
+                    </div>
+                    <div style="flex:1;background:#fef2f2;border-radius:8px;padding:10px;border:2px solid #fecaca;">
+                      <div style="font-size:10px;font-weight:700;color:#94a3b8;margin-bottom:2px;">${s.setNumber}</div>
+                      <div style="font-size:12px;font-weight:700;color:#dc2626;margin-bottom:8px;">${s.description||s.setNumber} <span style="font-size:9px;background:#dc2626;color:white;padding:1px 5px;border-radius:8px;vertical-align:middle;">Required</span></div>
+                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
+                        ${RETURN_STATUS.map(st=>`<button onclick="state.returnModal.conditions['${s.setNumber}']='${st.val}';render()" style="padding:8px 6px;border:2px solid ${st.color};border-radius:7px;background:${st.bg};cursor:pointer;font-size:11px;font-weight:700;color:${st.color};font-family:inherit;text-align:center;line-height:1.3;">${st.icon}<br/><span style="font-size:9px;">${st.label}</span></button>`).join("")}
+                      </div>
+                    </div>
+                  </div>`;
+                }
+
+                // Resolved (selected or pre-filled)
+                const chosen = RETURN_STATUS.find(st=>st.val===currentCond)||RETURN_STATUS[0];
+                return `<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;">
+                  <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;">
+                    <div style="width:26px;height:26px;border-radius:50%;background:${chosen.color};color:white;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;">✓</div>
+                    ${num<totalSets?`<div style="width:2px;flex:1;min-height:10px;background:#e2e8f0;margin-top:3px;"></div>`:""}
                   </div>
-                  ${isAvailable&&!isRepeat?`<span style="font-size:10px;color:#16a34a;font-weight:700;">🟢 Good</span>`:""}
-                </div>
-                ${isAvailable&&!isRepeat?"":`<div style="display:flex;flex-direction:column;gap:5px;">
-                  ${RETURN_STATUS.map(st=>`<button onclick="state.returnModal.conditions['${s.setNumber}']='${st.val}';render()" style="padding:8px 10px;border:2px solid ${r.conditions[s.setNumber]===st.val?st.color:"#e2e8f0"};border-radius:7px;background:${r.conditions[s.setNumber]===st.val?st.bg:"white"};cursor:pointer;font-size:11px;font-weight:${r.conditions[s.setNumber]===st.val?700:400};color:${r.conditions[s.setNumber]===st.val?st.color:"#64748b"};font-family:inherit;text-align:left;">${st.icon} ${st.label}</button>`).join("")}
-                </div>`}
-                ${r.conditions[s.setNumber]==="Quarantine"?`<div style="margin-top:6px;">
-                  <div style="font-size:10px;font-weight:700;color:#d97706;margin-bottom:3px;">🔬 What is the issue? *</div>
-                  <input placeholder="e.g. Scope cracked, missing part..." value="${r.quarantineReasons&&r.quarantineReasons[s.setNumber]||''}" oninput="if(!state.returnModal.quarantineReasons)state.returnModal.quarantineReasons={};state.returnModal.quarantineReasons['${s.setNumber}']=this.value" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #fde68a;font-size:11px;box-sizing:border-box;font-family:inherit;background:#fffbeb;"/>
-                  <div style="font-size:10px;color:#d97706;margin-top:3px;">⚠️ Set will be blocked until management clears it</div>
-                </div>`:""}
-                ${r.conditions[s.setNumber]==="Parked"?`<div style="margin-top:6px;">
-                  <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:3px;">📍 Park at which hospital?</div>
-                  <input placeholder="e.g. Hospital Putrajaya" value="${r.parkHospitals&&r.parkHospitals[s.setNumber]||''}" oninput="if(!state.returnModal.parkHospitals)state.returnModal.parkHospitals={};state.returnModal.parkHospitals['${s.setNumber}']=this.value" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #ddd6fe;font-size:11px;box-sizing:border-box;font-family:inherit;background:#f5f3ff;"/>
-                </div>`:""}
-              </div>`;
-            }).join("")}
+                  <div style="flex:1;background:${chosen.bg};border-radius:8px;padding:10px;border:2px solid ${chosen.color}55;">
+                    <div style="font-size:10px;font-weight:700;color:#94a3b8;margin-bottom:2px;">${s.setNumber} ${isPreFilled?'<span style="color:#cbd5e1;font-weight:400;">· previous status</span>':''}</div>
+                    <div style="font-size:12px;font-weight:700;color:${chosen.color};margin-bottom:6px;">${s.description||s.setNumber}</div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:white;border-radius:6px;border:1.5px solid ${chosen.color};">
+                      <span style="font-size:12px;font-weight:700;color:${chosen.color};">${chosen.icon} ${chosen.label}</span>
+                      <button onclick="state.returnModal.conditions['${s.setNumber}']='Out';render()" style="font-size:10px;color:#64748b;background:none;border:none;cursor:pointer;text-decoration:underline;font-family:inherit;padding:0;">Change</button>
+                    </div>
+                    ${currentCond==="Quarantine"?`<div style="margin-top:8px;">
+                      <div style="font-size:10px;font-weight:700;color:#d97706;margin-bottom:3px;">🔬 Issue description *</div>
+                      <input placeholder="e.g. Scope cracked, missing part..." value="${(r.quarantineReasons&&r.quarantineReasons[s.setNumber])||""}" oninput="if(!state.returnModal.quarantineReasons)state.returnModal.quarantineReasons={};state.returnModal.quarantineReasons['${s.setNumber}']=this.value" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #fde68a;font-size:11px;box-sizing:border-box;font-family:inherit;background:#fffbeb;"/>
+                      <div style="font-size:10px;color:#d97706;margin-top:3px;">⚠️ Blocked until management clears</div>
+                    </div>`:""}
+                    ${currentCond==="Parked"?`<div style="margin-top:8px;">
+                      <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:3px;">📍 Park at which hospital?</div>
+                      <input placeholder="e.g. Hospital Putrajaya" value="${(r.parkHospitals&&r.parkHospitals[s.setNumber])||""}" oninput="if(!state.returnModal.parkHospitals)state.returnModal.parkHospitals={};state.returnModal.parkHospitals['${s.setNumber}']=this.value" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #ddd6fe;font-size:11px;box-sizing:border-box;font-family:inherit;background:#f5f3ff;"/>
+                    </div>`:""}
+                  </div>
+                </div>`;
+              }).join("");
+            })()}
+            ${!allResolved?`<div style="background:#fef2f2;border-radius:8px;padding:8px 12px;font-size:11px;color:#dc2626;font-weight:600;display:flex;align-items:center;gap:6px;"><span>⚠️</span><span>${unresolvedSets.length} set(s) still need a status above</span></div>`:
+            `<div style="background:#f0fdf4;border-radius:8px;padding:8px 12px;font-size:11px;color:#16a34a;font-weight:600;display:flex;align-items:center;gap:6px;"><span>✅</span><span>All sets assigned — ready to confirm</span></div>`}
           </div>
+
+          <!-- Return date -->
           <div style="background:white;border-radius:10px;padding:14px;">
             <div style="font-weight:700;font-size:12px;color:#0f2a5e;margin-bottom:6px;">📅 Actual Return Date</div>
             <input type="date" id="returnDateInput" value="${r.returnDate||''}" oninput="state.returnModal.returnDate=this.value" style="padding:9px 12px;border-radius:7px;border:1px solid #cbd5e1;font-size:12px;width:100%;font-family:inherit;box-sizing:border-box;"/>
           </div>
+
+          <!-- Return note -->
           <div style="background:white;border-radius:10px;padding:14px;">
             <div style="font-weight:700;font-size:12px;color:#0f2a5e;margin-bottom:6px;">📝 Return Note (optional)</div>
             <input placeholder="e.g. All sets complete, scope cleaned" value="${r.note||""}" oninput="state.returnModal.note=this.value" style="padding:9px 12px;border-radius:7px;border:1px solid #cbd5e1;font-size:12px;width:100%;font-family:inherit;"/>
           </div>
+
+          <!-- Action buttons -->
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             <button onclick="state.returnModal=null;render()" style="padding:12px;border-radius:8px;border:1px solid #e2e8f0;background:white;cursor:pointer;font-size:13px;font-weight:600;color:#64748b;font-family:inherit;">Cancel</button>
-            <button onclick="submitReturn()" style="padding:12px;border-radius:8px;border:none;background:${r.photos.length>0?"#16a34a":"#94a3b8"};cursor:pointer;font-size:13px;font-weight:700;color:white;font-family:inherit;">✅ Confirm Return ${r.photos.length===0?"(Photo Required)":""}</button>
+            <button onclick="submitReturn()" style="padding:12px;border-radius:8px;border:none;background:${canSubmit?"#16a34a":"#94a3b8"};cursor:${canSubmit?"pointer":"not-allowed"};font-size:13px;font-weight:700;color:white;font-family:inherit;" ${canSubmit?"":"disabled"}>
+              ${!r.photos.length?"📷 Photo Required":!allResolved?"⚠️ Assign All Statuses":"✅ Confirm Return"}
+            </button>
           </div>
         </div>
       </div>
@@ -1095,9 +1097,9 @@ function render() {
 
   // ── PHOTO LIGHTBOX ──
   if (state.photoViewId) {
-    const loan = state.loans.find(l=>l.id===state.photoViewId);
-    const photos = loan?.photos||[];
-    const idx = state.photoViewIdx;
+    const loan=state.loans.find(l=>l.id===state.photoViewId);
+    const photos=loan?.photos||[];
+    const idx=state.photoViewIdx;
     html += `<div onclick="closePhotoView()" style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.92);display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:40px;z-index:999;cursor:pointer;">
       <div onclick="event.stopPropagation()" style="width:100%;max-width:380px;padding:0 12px;">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
@@ -1105,7 +1107,7 @@ function render() {
           <button onclick="closePhotoView()" style="background:rgba(255,255,255,0.15);border:none;color:white;border-radius:20px;padding:4px 12px;cursor:pointer;font-size:13px;font-weight:700;font-family:inherit;">✕ Close</button>
         </div>
         <img src="${photos[idx]?.dataUrl||""}" style="width:100%;border-radius:10px;border:2px solid rgba(255,255,255,0.2);"/>
-        <div style="color:rgba(255,255,255,0.6);font-size:11px;text-align:center;margin-top:8px;">Taken at ${photos[idx]?.ts||""}</div>
+        <div style="color:rgba(255,255,255,0.6);font-size:11px;text-align:center;margin-top:8px;">${photos[idx]?.ts||""}</div>
         ${photos.length>1?`<div style="display:flex;gap:6px;margin-top:12px;justify-content:center;">
           ${photos.map((_,i)=>`<div onclick="setPhotoIdx(${i})" style="width:44px;height:44px;border-radius:6px;overflow:hidden;border:2px solid ${i===idx?"#60a5fa":"rgba(255,255,255,0.2)"};cursor:pointer;flex-shrink:0;">
             <img src="${photos[i].dataUrl}" style="width:100%;height:100%;object-fit:cover;"/>
@@ -1117,7 +1119,7 @@ function render() {
 
   // ── REPAIR CONFIRM MODAL ──
   if (state.repairModal) {
-    const rm = state.repairModal;
+    const rm=state.repairModal;
     html += `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:1002;padding:16px;">
       <div style="background:white;border-radius:14px;padding:22px;width:100%;max-width:360px;">
         <div style="font-size:32px;text-align:center;margin-bottom:8px;">🔧</div>
@@ -1126,12 +1128,10 @@ function render() {
         ${rm.snChanged?`<div style="background:#f8fafc;border-radius:10px;padding:12px;margin-bottom:16px;">
           <div style="font-size:11px;color:#64748b;margin-bottom:6px;font-weight:600;">S/N UPDATED:</div>
           <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;">
-            <span style="color:#94a3b8;">Old S/N:</span>
-            <span style="color:#dc2626;font-weight:600;text-decoration:line-through;">${rm.oldSn||"(empty)"}</span>
+            <span style="color:#94a3b8;">Old S/N:</span><span style="color:#dc2626;font-weight:600;text-decoration:line-through;">${rm.oldSn||"(empty)"}</span>
           </div>
           <div style="display:flex;justify-content:space-between;font-size:12px;">
-            <span style="color:#94a3b8;">New S/N:</span>
-            <span style="color:#16a34a;font-weight:700;">${rm.newSn}</span>
+            <span style="color:#94a3b8;">New S/N:</span><span style="color:#16a34a;font-weight:700;">${rm.newSn}</span>
           </div>
         </div>`:`<div style="background:#fffbeb;border-radius:10px;padding:10px;margin-bottom:16px;font-size:11px;color:#d97706;">ℹ️ No S/N change detected</div>`}
         <div style="font-size:13px;font-weight:700;color:#0f2a5e;margin-bottom:10px;">Has the issue been resolved?</div>
@@ -1150,14 +1150,13 @@ function render() {
     </div>`;
   }
 
-  // ── PARK MODAL ──
+  // ── CHANGE STATUS (PARK) MODAL ──
   if (state.parkModal) {
-    const pm = state.parkModal;
-    const isParked = pm.newStatus === "Parked";
-    const isAvail = pm.newStatus === "Available";
-    const isQuar = pm.newStatus === "Quarantine";
-    const confirmColor = isParked?"#7c3aed":isAvail?"#16a34a":isQuar?"#d97706":"#1d4ed8";
-
+    const pm=state.parkModal;
+    const isParked=pm.newStatus==="Parked";
+    const isAvail=pm.newStatus==="Available";
+    const isQuar=pm.newStatus==="Quarantine";
+    const confirmColor=isParked?"#7c3aed":isAvail?"#16a34a":isQuar?"#d97706":"#1d4ed8";
     html += `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:2000;padding:16px;overflow-y:auto;">
       <div style="background:white;border-radius:14px;padding:20px;width:100%;max-width:360px;">
         <div style="font-size:14px;font-weight:800;color:#0f2a5e;margin-bottom:2px;">🔄 Change Set Status</div>
@@ -1169,7 +1168,7 @@ function render() {
               <button onclick="(function(e){e.stopPropagation();var sy=window.scrollY;state.parkModal.newStatus='${key}';render();window.scrollTo(0,sy);})(event)" style="padding:10px 12px;border:2px solid ${pm.newStatus===key?cfg.color:"#e2e8f0"};border-radius:8px;background:${pm.newStatus===key?cfg.bg:"white"};cursor:pointer;font-size:12px;font-weight:${pm.newStatus===key?700:500};color:${pm.newStatus===key?cfg.color:"#475569"};font-family:inherit;text-align:left;display:flex;align-items:center;gap:8px;">
                 <span style="font-size:16px;">${cfg.icon}</span>
                 <div><div style="font-weight:700;">${cfg.label}</div>
-                <div style="font-size:10px;opacity:0.8;">${key==="Available"?"Ready for loans":key==="Quarantine"?"Block — has issue":"Long term at hospital"}</div></div>
+                <div style="font-size:10px;opacity:0.8;">${key==="Available"?"Ready for loans":key==="Out"?"Currently on loan":key==="Quarantine"?"Block — has issue":key==="Repeat"?"Next case soon":"Long term at hospital"}</div></div>
               </button>`).join("")}
           </div>
         </div>
@@ -1189,31 +1188,31 @@ function render() {
         ${isAvail?`<div style="background:#f0fdf4;border-radius:8px;padding:8px 10px;margin-bottom:12px;font-size:11px;color:#16a34a;">🟢 Set will become available for loans again.</div>`:""}
         <div style="display:flex;gap:8px;margin-top:4px;">
           <button type="button" onclick="state.parkModal=null;render()" style="flex:1;padding:12px;border-radius:8px;border:1px solid #e2e8f0;background:#f8fafc;cursor:pointer;font-size:14px;font-weight:600;color:#64748b;font-family:inherit;">Cancel</button>
-          <button type="button" onclick="submitParkModal()" style="flex:1;padding:12px;border-radius:8px;border:none;background:${pm.newStatus?confirmColor:"#94a3b8"};cursor:pointer;font-size:14px;font-weight:700;color:white;font-family:inherit;pointer-events:all;">✅ Confirm</button>
+          <button type="button" onclick="submitParkModal()" style="flex:1;padding:12px;border-radius:8px;border:none;background:${pm.newStatus?confirmColor:"#94a3b8"};cursor:pointer;font-size:14px;font-weight:700;color:white;font-family:inherit;">✅ Confirm</button>
         </div>
       </div>
     </div>`;
   }
 
-  // ── ACCESS CONTROL MODAL ──
-  // Staff verification modal
+  // ── STAFF VERIFICATION MODAL ──
   if (state.staffModal) {
-    const sm = state.staffModal;
+    const sm=state.staffModal;
     html += `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:3000;padding:16px;">
       <div style="background:white;border-radius:16px;padding:24px;max-width:360px;width:100%;">
         <div style="font-size:15px;font-weight:800;color:#0f2a5e;margin-bottom:4px;">🔐 Staff Verification</div>
         <div style="font-size:11px;color:#64748b;margin-bottom:16px;">${sm.action}</div>
         <div style="margin-bottom:10px;">
           <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:4px;">YOUR NAME</div>
-          <select id="staffNameSel" style="width:100%;padding:10px;border-radius:7px;border:1px solid #cbd5e1;font-size:13px;font-family:inherit;box-sizing:border-box;">
+          <select id="staffNameSel" onchange="state.staffModal.name=this.value" style="width:100%;padding:10px;border-radius:7px;border:1px solid #cbd5e1;font-size:13px;font-family:inherit;box-sizing:border-box;">
             <option value="">— Select your name —</option>
             ${state.staff.map(s=>`<option value="${s.name}" ${sm.name===s.name?"selected":""}>${s.name}</option>`).join("")}
           </select>
         </div>
         <div style="margin-bottom:16px;">
           <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:4px;">YOUR PASSWORD</div>
-          <input id="staffPassInput" type="password" placeholder="Enter your password" value="${sm.password||""}" 
+          <input id="staffPassInput" type="password" placeholder="Enter your password" value="${sm.password||""}"
             oninput="state.staffModal.password=this.value"
+            onkeydown="if(event.key==='Enter')submitStaffModal()"
             style="width:100%;padding:10px;border-radius:7px;border:1px solid ${sm.error?"#dc2626":"#cbd5e1"};font-size:13px;font-family:inherit;box-sizing:border-box;"/>
           ${sm.error?`<div style="color:#dc2626;font-size:11px;margin-top:4px;">⚠️ ${sm.error}</div>`:""}
         </div>
@@ -1228,36 +1227,30 @@ function render() {
     </div>`;
   }
 
-  // Change Password modal
+  // ── CHANGE PASSWORD MODAL ──
   if (state.changePwModal) {
-    const cp = state.changePwModal;
+    const cp=state.changePwModal;
     html += `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:3000;padding:16px;">
       <div style="background:white;border-radius:16px;padding:24px;max-width:360px;width:100%;">
         <div style="font-size:15px;font-weight:800;color:#0f2a5e;margin-bottom:16px;">🔑 Change Password</div>
         <div style="margin-bottom:10px;">
           <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:4px;">YOUR NAME</div>
-          <select id="cpNameSel" style="width:100%;padding:10px;border-radius:7px;border:1px solid #cbd5e1;font-size:13px;font-family:inherit;box-sizing:border-box;">
+          <select id="cpNameSel" onchange="state.changePwModal.name=this.value" style="width:100%;padding:10px;border-radius:7px;border:1px solid #cbd5e1;font-size:13px;font-family:inherit;box-sizing:border-box;">
             <option value="">— Select your name —</option>
             ${state.staff.map(s=>`<option value="${s.name}" ${cp.name===s.name?"selected":""}>${s.name}</option>`).join("")}
           </select>
         </div>
         <div style="margin-bottom:10px;">
           <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:4px;">CURRENT PASSWORD</div>
-          <input id="cpOldPass" type="password" placeholder="Enter current password" value="${cp.oldPass||""}"
-            oninput="state.changePwModal.oldPass=this.value"
-            style="width:100%;padding:10px;border-radius:7px;border:1px solid #cbd5e1;font-size:13px;font-family:inherit;box-sizing:border-box;"/>
+          <input id="cpOldPass" type="password" placeholder="Enter current password" value="${cp.oldPass||""}" oninput="state.changePwModal.oldPass=this.value" style="width:100%;padding:10px;border-radius:7px;border:1px solid #cbd5e1;font-size:13px;font-family:inherit;box-sizing:border-box;"/>
         </div>
         <div style="margin-bottom:10px;">
           <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:4px;">NEW PASSWORD</div>
-          <input id="cpNewPass" type="password" placeholder="Enter new password" value="${cp.newPass||""}"
-            oninput="state.changePwModal.newPass=this.value"
-            style="width:100%;padding:10px;border-radius:7px;border:1px solid #cbd5e1;font-size:13px;font-family:inherit;box-sizing:border-box;"/>
+          <input id="cpNewPass" type="password" placeholder="Enter new password" value="${cp.newPass||""}" oninput="state.changePwModal.newPass=this.value" style="width:100%;padding:10px;border-radius:7px;border:1px solid #cbd5e1;font-size:13px;font-family:inherit;box-sizing:border-box;"/>
         </div>
         <div style="margin-bottom:16px;">
           <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:4px;">CONFIRM NEW PASSWORD</div>
-          <input id="cpConfPass" type="password" placeholder="Confirm new password" value="${cp.confPass||""}"
-            oninput="state.changePwModal.confPass=this.value"
-            style="width:100%;padding:10px;border-radius:7px;border:1px solid ${cp.error?"#dc2626":"#cbd5e1"};font-size:13px;font-family:inherit;box-sizing:border-box;"/>
+          <input id="cpConfPass" type="password" placeholder="Confirm new password" value="${cp.confPass||""}" oninput="state.changePwModal.confPass=this.value" onkeydown="if(event.key==='Enter')submitChangePassword()" style="width:100%;padding:10px;border-radius:7px;border:1px solid ${cp.error?"#dc2626":"#cbd5e1"};font-size:13px;font-family:inherit;box-sizing:border-box;"/>
           ${cp.error?`<div style="color:#dc2626;font-size:11px;margin-top:4px;">⚠️ ${cp.error}</div>`:""}
           ${cp.success?`<div style="color:#16a34a;font-size:11px;margin-top:4px;">✅ ${cp.success}</div>`:""}
         </div>
@@ -1269,8 +1262,9 @@ function render() {
     </div>`;
   }
 
+  // ── PIN / DELETE MODAL ──
   if (state.modal) {
-    const m = state.modal;
+    const m=state.modal;
     html += `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:1000;padding:20px;">
       <div style="background:white;border-radius:14px;padding:22px;width:100%;max-width:320px;">
         <div style="font-size:28px;text-align:center;margin-bottom:6px;">${m.type==="pin"?"🔐":"🔑"}</div>
@@ -1290,9 +1284,9 @@ function render() {
 
   html += `</div>`; // close app div
   document.getElementById("app").innerHTML = html;
-  if(_sy > 0) { 
+  if (_sy > 0) {
     const appEl = document.getElementById("app");
-    if(appEl) { appEl.scrollTop = _sy; setTimeout(()=>{ if(appEl) appEl.scrollTop = _sy; },10); }
+    if (appEl) { appEl.scrollTop = _sy; setTimeout(()=>{ if(appEl) appEl.scrollTop = _sy; }, 10); }
   }
 }
 
@@ -1306,88 +1300,66 @@ function updateInvAvail(v) { state.invAvail=v; render(); }
 function toggleForm() { state.showForm=!state.showForm; if(!state.showForm){state.editId=null;state.form=emptyForm();} render(); }
 function toggleExpand(id) { state.expandedId=state.expandedId===id?null:id; render(); }
 function toggleCat(cat) {
-  const scrollY = window.scrollY;
-  state.collapsedCats = state.collapsedCats||{};
-  state.collapsedCats[cat] = state.collapsedCats[cat] === false ? true : false;
+  const scrollY=window.scrollY;
+  state.collapsedCats=state.collapsedCats||{};
+  state.collapsedCats[cat]=state.collapsedCats[cat]===false?true:false;
   render();
-  requestAnimationFrame(() => window.scrollTo(0, scrollY));
+  requestAnimationFrame(()=>window.scrollTo(0,scrollY));
 }
 
 function updateFormField(name,val) { state.form[name]=val; }
 function toggleSetDrop(i) {
-  if(event) { event.stopPropagation(); event.preventDefault(); }
-  const scrollY = window.scrollY;
-  state.setDropOpen = state.setDropOpen||{};
-  const wasOpen = state.setDropOpen[i];
-  state.setDropOpen = {};
-  state.setDropOpen[i] = !wasOpen;
+  if(event){event.stopPropagation();event.preventDefault();}
+  const scrollY=window.scrollY;
+  state.setDropOpen=state.setDropOpen||{};
+  const wasOpen=state.setDropOpen[i];
+  state.setDropOpen={};
+  state.setDropOpen[i]=!wasOpen;
   render();
-  window.scrollTo(0, scrollY);
+  window.scrollTo(0,scrollY);
 }
-function toggleSetDropCat(i, cat) {
-  if(event) { event.stopPropagation(); event.preventDefault(); }
-  const key = i+"_"+encodeURIComponent(cat);
-  const scrollY = window.scrollY;
-  state.setDropCats = state.setDropCats||{};
-  state.setDropCats[key] = !state.setDropCats[key];
+function toggleSetDropCatByKey(e,key) {
+  if(e){e.stopPropagation();e.preventDefault();}
+  let scrollContainer=e.target;
+  while(scrollContainer&&scrollContainer.scrollHeight<=scrollContainer.clientHeight){scrollContainer=scrollContainer.parentElement;}
+  const savedScroll=scrollContainer?scrollContainer.scrollTop:0;
+  state.setDropCats=state.setDropCats||{};
+  state.setDropCats[key]=!state.setDropCats[key];
   render();
-  window.scrollTo(0, scrollY);
-}
-function toggleSetDropCatByKey(e, key) {
-  if(e) { e.stopPropagation(); e.preventDefault(); }
-  
-  // Find the scrollable dropdown container - walk up from clicked element
-  let scrollContainer = e.target;
-  while(scrollContainer && scrollContainer.scrollHeight <= scrollContainer.clientHeight) {
-    scrollContainer = scrollContainer.parentElement;
-  }
-  const savedScroll = scrollContainer ? scrollContainer.scrollTop : 0;
-  
-  state.setDropCats = state.setDropCats||{};
-  state.setDropCats[key] = !state.setDropCats[key];
-  render();
-  
-  // Restore scroll on the same container by finding it again
   setTimeout(()=>{
-    // Find the scrollable div inside the dropdown
-    const dropdowns = document.querySelectorAll('div[style*="max-height:280px"]');
-    dropdowns.forEach(d => {
-      const inner = d.querySelector('div[style*="overflow-y:auto"]') || d;
-      if(inner.scrollHeight > inner.clientHeight) {
-        inner.scrollTop = savedScroll;
-      }
+    const dropdowns=document.querySelectorAll('div[style*="max-height:320px"]');
+    dropdowns.forEach(d=>{
+      const inner=d.querySelector('div[style*="overflow-y:auto"]')||d;
+      if(inner.scrollHeight>inner.clientHeight){inner.scrollTop=savedScroll;}
     });
-  }, 5);
+  },5);
 }
-function selectSet(i, setNum) {
-  if(event) { event.stopPropagation(); event.preventDefault(); }
-  const scrollY = window.scrollY;
-  updateSet(i,'setNumber',setNum);
+function selectSet(i,setNum) {
+  if(event){event.stopPropagation();event.preventDefault();}
+  const scrollY=window.scrollY;
+  updateSet(i,"setNumber",setNum);
   state.setDropOpen=state.setDropOpen||{};
   state.setDropOpen[i]=false;
   state.setSearch=state.setSearch||{};
   state.setSearch[i]="";
   render();
-  window.scrollTo(0, scrollY);
+  window.scrollTo(0,scrollY);
 }
 function updateSet(i,field,val) {
-  if(field==="setNumber"){ const found=state.inventory.find(x=>x.setNumber===val); if(found){state.form.sets[i]={...state.form.sets[i],setNumber:val,description:found.description,brand:found.brand,sn:found.sn};}else{state.form.sets[i].setNumber=val;} }
+  if(field==="setNumber"){const found=state.inventory.find(x=>x.setNumber===val);if(found){state.form.sets[i]={...state.form.sets[i],setNumber:val,description:found.description,brand:found.brand,sn:found.sn};}else{state.form.sets[i].setNumber=val;}}
   else state.form.sets[i][field]=val;
   render();
 }
 function addSet() { state.form.sets.push({setNumber:"",description:"",brand:"",sn:"",condition:"Good"}); render(); }
 function removeSet(i) { state.form.sets.splice(i,1); render(); }
+
 function saveLoanForm() {
   if(!state.editId) {
-    const valid = state.form.sets.filter(s=>s.setNumber);
-    if(!valid.length||!state.form.hospital||!state.form.surgeon||!state.form.borrowDate) {
-      toast("Fill: Hospital, Surgeon, Date & at least 1 set"); return;
-    }
-    if(!state.form.photos||state.form.photos.length===0) {
-      toast("📷 Photo evidence is required!"); return;
-    }
-    reqStaffAction("📤 Sending out loan — verify your identity", (staffName)=>{
-      state.form.pic = staffName;
+    const valid=state.form.sets.filter(s=>s.setNumber);
+    if(!valid.length||!state.form.hospital||!state.form.surgeon||!state.form.borrowDate){toast("Fill: Hospital, Surgeon, Date & at least 1 set");return;}
+    if(!state.form.photos||state.form.photos.length===0){toast("📷 Photo evidence is required!");return;}
+    reqStaffAction("📤 Sending out loan — verify your identity",(staffName)=>{
+      state.form.pic=staffName;
       saveLoan();
     });
     return;
@@ -1395,70 +1367,99 @@ function saveLoanForm() {
   saveLoan();
 }
 
-function compressPhoto(file, callback) {
-  const MAX_WIDTH = 1024;
-  const MAX_HEIGHT = 1024;
-  const QUALITY = 0.7;
-  const reader = new FileReader();
-  reader.onload = ev => {
-    const img = new Image();
-    img.onload = () => {
-      let w = img.width, h = img.height;
-      if (w > MAX_WIDTH) { h = Math.round(h * MAX_WIDTH / w); w = MAX_WIDTH; }
-      if (h > MAX_HEIGHT) { w = Math.round(w * MAX_HEIGHT / h); h = MAX_HEIGHT; }
-      const canvas = document.createElement("canvas");
-      canvas.width = w; canvas.height = h;
-      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-      const compressed = canvas.toDataURL("image/jpeg", QUALITY);
-      const originalKB = Math.round(file.size / 1024);
-      const compressedKB = Math.round(compressed.length * 0.75 / 1024);
-      callback(compressed, originalKB, compressedKB);
+function compressPhoto(file,callback) {
+  const MAX_WIDTH=1024,MAX_HEIGHT=1024,QUALITY=0.7;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    const img=new Image();
+    img.onload=()=>{
+      let w=img.width,h=img.height;
+      if(w>MAX_WIDTH){h=Math.round(h*MAX_WIDTH/w);w=MAX_WIDTH;}
+      if(h>MAX_HEIGHT){w=Math.round(w*MAX_HEIGHT/h);h=MAX_HEIGHT;}
+      const canvas=document.createElement("canvas");
+      canvas.width=w;canvas.height=h;
+      canvas.getContext("2d").drawImage(img,0,0,w,h);
+      const compressed=canvas.toDataURL("image/jpeg",QUALITY);
+      const compressedKB=Math.round(compressed.length*0.75/1024);
+      callback(compressed,Math.round(file.size/1024),compressedKB);
     };
-    img.src = ev.target.result;
+    img.src=ev.target.result;
   };
   reader.readAsDataURL(file);
 }
 
 function handlePhoto(event) {
-  const files = Array.from(event.target.files);
-  files.forEach(file=>{
-    compressPhoto(file, (dataUrl, originalKB, compressedKB)=>{
-      state.form.photos.push({dataUrl, name:file.name, ts:new Date().toLocaleTimeString("en-MY"), compressedKB});
+  Array.from(event.target.files).forEach(file=>{
+    compressPhoto(file,(dataUrl,orig,compressedKB)=>{
+      state.form.photos.push({dataUrl,name:file.name,ts:new Date().toLocaleTimeString("en-MY"),compressedKB});
       render();
     });
   });
 }
 function removePhoto(i) { state.form.photos.splice(i,1); render(); }
 
+// doReturn pre-fill logic:
+//   "Available"              → locked ✅ (already returned good, read-only)
+//   "Out"                    → unresolved 🔴 (still genuinely out, staff must pick a status)
+//   "Quarantine"/"Repeat"/"Parked" → pre-filled with current status but still editable
+//     (covers re-opening a return to correct a previously set status)
 function doReturn(id) {
-  reqStaffAction("📥 Returning loan — verify your identity", (staffName)=>{
-    const loan = state.loans.find(l=>l.id===id);
-    const conditions = {};
-    loan.sets.forEach(s=>{ conditions[s.setNumber] = "Available"; });
-    const today = new Date().toISOString().split("T")[0];
-    state.returnModal = { loanId:id, loan, photos:[], conditions, note:"", returnDate:today, staffName };
+  reqStaffAction("📥 Returning loan — verify your identity",(staffName)=>{
+    const loan=state.loans.find(l=>l.id===id);
+    const conditions={};
+    const parkHospitals={};
+    loan.sets.forEach(s=>{
+      const inv=state.inventory.find(i=>i.setNumber===s.setNumber);
+      const invAvail=inv?.availability||"Available";
+      if(invAvail==="Available"){
+        // Locked — already returned good
+        conditions[s.setNumber]="Available";
+      } else if(invAvail==="Out"){
+        // Genuinely unresolved — force staff to pick
+        conditions[s.setNumber]="Out";
+      } else {
+        // Quarantine / Repeat / Parked — pre-fill so staff can see & correct
+        conditions[s.setNumber]=invAvail;
+        if(invAvail==="Parked"&&inv?.consignmentHospital){
+          parkHospitals[s.setNumber]=inv.consignmentHospital;
+        }
+      }
+    });
+    const today=new Date().toISOString().split("T")[0];
+    state.returnModal={loanId:id,loan,photos:[],conditions,note:"",returnDate:today,staffName,quarantineReasons:{},parkHospitals};
     render();
   });
 }
+
 function submitReturn() {
-  const r = state.returnModal;
-  if(!r.photos || r.photos.length === 0) {
-    alert("📷 Photo evidence is required! Please take or upload at least 1 photo before confirming return.");
+  const r=state.returnModal;
+  if(!r.photos||r.photos.length===0){
+    toast("📷 Photo required before confirming!");
     return;
   }
-  const combined = {...(r.parkHospitals||{})};
-  if (r.quarantineReasons) {
-    Object.entries(r.quarantineReasons).forEach(([k,v]) => { combined["qr_"+k] = v; });
+  // Validate all non-locked sets have a resolved status
+  const unresolved=r.loan.sets.filter(s=>{
+    const inv=state.inventory.find(i=>i.setNumber===s.setNumber);
+    const isAlreadyAvailable=(inv?.availability||"Available")==="Available";
+    return !isAlreadyAvailable&&(!r.conditions[s.setNumber]||r.conditions[s.setNumber]==="Out");
+  });
+  if(unresolved.length>0){
+    toast(`⚠️ Assign status to: ${unresolved.map(s=>s.setNumber).join(", ")}`);
+    return;
   }
-  const dateEl = document.getElementById("returnDateInput");
-  const returnDate = dateEl ? dateEl.value : r.returnDate;
-  returnLoan(r.loanId, r.photos, r.conditions, r.note, combined, returnDate);
+  const combined={...r.parkHospitals};
+  if(r.quarantineReasons){
+    Object.entries(r.quarantineReasons).forEach(([k,v])=>{combined["qr_"+k]=v;});
+  }
+  const dateEl=document.getElementById("returnDateInput");
+  const returnDate=dateEl?dateEl.value:r.returnDate;
+  returnLoan(r.loanId,r.photos,r.conditions,r.note,combined,returnDate);
 }
+
 function handleReturnPhoto(event) {
-  const files = Array.from(event.target.files);
-  files.forEach(file=>{
-    compressPhoto(file, (dataUrl, originalKB, compressedKB)=>{
-      state.returnModal.photos.push({dataUrl, name:file.name, ts:new Date().toLocaleTimeString("en-MY"), compressedKB});
+  Array.from(event.target.files).forEach(file=>{
+    compressPhoto(file,(dataUrl,orig,compressedKB)=>{
+      state.returnModal.photos.push({dataUrl,name:file.name,ts:new Date().toLocaleTimeString("en-MY"),compressedKB});
       render();
     });
   });
@@ -1469,13 +1470,13 @@ function reqDelete(id) { state.modal={type:"delete",fn:()=>deleteLoan(id),input:
 function editLoan(id) {
   const l=state.loans.find(x=>x.id===id);
   state.form={...l,photos:l.photos||[]};
-  state.editId=id; state.showForm=true; state.tab="loans";
-  render(); const _a=document.getElementById("app"); if(_a) _a.scrollTop=0;
+  state.editId=id;state.showForm=true;state.tab="loans";
+  render();const _a=document.getElementById("app");if(_a)_a.scrollTop=0;
 }
 
-function openPhotoView(loanId,idx) { state.photoViewId=loanId; state.photoViewIdx=idx; render(); }
-function closePhotoView() { state.photoViewId=null; render(); }
-function setPhotoIdx(i) { state.photoViewIdx=i; render(); }
+function openPhotoView(loanId,idx) { state.photoViewId=loanId;state.photoViewIdx=idx;render(); }
+function closePhotoView() { state.photoViewId=null;render(); }
+function setPhotoIdx(i) { state.photoViewIdx=i;render(); }
 
 function updateInvForm(name,val) { state.invForm[name]=val; }
 function toggleInvForm() {
@@ -1487,27 +1488,23 @@ function reqEditInv(setNum) {
   const fn=()=>{const item=state.inventory.find(i=>i.setNumber===setNum);state.invForm={...item,availability:item.availability||"Available",consignmentHospital:item.consignmentHospital||"",consignmentSince:item.consignmentSince||""};state.invEditKey=setNum;state.showInvForm=true;render();};
   if(state.invUnlocked)fn();else{state.modal={type:"pin",fn,input:"",error:""};render();}
 }
-function reqDeleteInv(setNum) {
-  state.modal={type:"delete", customPassword:"admin123", fn:()=>deleteInvItem(setNum), input:"", error:""};
-  render();
-}
-function saveInv() { saveInvItem(false); }
-function lockInv() { state.invUnlocked=false; state.showInvForm=false; render(); }
+function reqDeleteInv(setNum) { state.modal={type:"delete",customPassword:"admin123",fn:()=>deleteInvItem(setNum),input:"",error:""};render(); }
+function saveInv() { saveInvItem(undefined); }
+function saveInvAsAvailable() { saveInvItem(true); }
+function saveInvKeepQuarantine() { saveInvItem(false); }
+function lockInv() { state.invUnlocked=false;state.showInvForm=false;render(); }
 
 function updateModalInput(v) { if(state.modal)state.modal.input=v; }
-function closeModal() { state.modal=null; render(); }
+function closeModal() { state.modal=null;render(); }
 function submitModal() {
   if(!state.modal)return;
   if(state.modal.type==="pin"){
     if(state.modal.input===INVENTORY_PIN){
-      if(!state.modal.skipUnlock) state.invUnlocked=true;
-      const fn=state.modal.fn;
-      state.modal=null;
-      fn();
-    }
-    else{state.modal.error="Wrong PIN. Try again.";state.modal.input="";render();}
-  } else {
-    const expectedPwd = state.modal.customPassword || DELETE_PASSWORD;
+      if(!state.modal.skipUnlock)state.invUnlocked=true;
+      const fn=state.modal.fn;state.modal=null;fn();
+    }else{state.modal.error="Wrong PIN. Try again.";state.modal.input="";render();}
+  }else{
+    const expectedPwd=state.modal.customPassword||DELETE_PASSWORD;
     if(state.modal.input===expectedPwd){const fn=state.modal.fn;state.modal=null;fn();}
     else{state.modal.error="Wrong password. Try again.";state.modal.input="";render();}
   }
@@ -1521,16 +1518,16 @@ function exportCSV() {
   toast("📥 Report downloaded!");
 }
 
-function toggleLogSelectMode() { state.selectLogMode=!state.selectLogMode; state.selectedLogs=[]; render(); }
+function toggleLogSelectMode() { state.selectLogMode=!state.selectLogMode;state.selectedLogs=[];render(); }
 function toggleLogSelect(id) {
   if(state.selectedLogs.includes(id)){state.selectedLogs=state.selectedLogs.filter(x=>x!==id);}
   else{state.selectedLogs.push(id);}
   render();
 }
 function toggleSelectAll() {
-  const currentLogs = state.tab==="rectify"
-    ? state.activityLog.filter(e=>e.action==="Status Change")
-    : state.activityLog.filter(e=>e.action!=="Status Change");
+  const currentLogs=state.tab==="rectify"
+    ?state.activityLog.filter(e=>e.action==="Status Change")
+    :state.activityLog.filter(e=>e.action!=="Status Change");
   if(state.selectedLogs.length===currentLogs.length){state.selectedLogs=[];}
   else{state.selectedLogs=currentLogs.map(e=>e.id);}
   render();
@@ -1539,177 +1536,161 @@ async function doDeleteSelectedLogs() {
   const ids=[...state.selectedLogs];
   for(const id of ids){await sb.from("activity_log").delete().eq("id",id);}
   state.activityLog=state.activityLog.filter(e=>!ids.includes(e.id));
-  state.selectedLogs=[]; state.selectLogMode=false;
-  toast(`🗑️ ${ids.length} log entries deleted!`); render();
+  state.selectedLogs=[];state.selectLogMode=false;
+  toast(`🗑️ ${ids.length} log entries deleted!`);render();
 }
-function reqDeleteSelectedLogs() {
-  state.modal={type:"delete", customPassword:"admin123", fn:()=>doDeleteSelectedLogs(), input:"", error:""};
-  render();
-}
+function reqDeleteSelectedLogs() { state.modal={type:"delete",customPassword:"admin123",fn:()=>doDeleteSelectedLogs(),input:"",error:""};render(); }
 
-function quickStatus(setNum, currentStatus) {
-  reqStaffAction("🔄 Changing set status — verify your identity", (staffName)=>{
+function quickStatus(setNum,currentStatus) {
+  reqStaffAction("🔄 Changing set status — verify your identity",(staffName)=>{
     state.parkModal={setNumber:setNum,currentStatus:currentStatus||"Available",newStatus:"",hospital:"",since:new Date().toISOString().split("T")[0],staffName};
     render();
   });
 }
-async function doQuickStatus(setNum, newStatus, hospital, since, staffName) {
-  // Close modal immediately
-  state.parkModal = null;
-  render();
-
-  const updateData = {
-    availability: newStatus,
-    consignment_hospital: hospital||null,
-    consignment_since: since||null
+async function doQuickStatus(setNum,newStatus,hospital,since,staffName) {
+  state.parkModal=null;render();
+  const updateData={
+    availability:newStatus,
+    consignment_hospital:hospital||null,
+    consignment_since:since||null
   };
-  if (newStatus === "Parked" && hospital) updateData.location = hospital;
-  if (newStatus === "Available") {
-    updateData.consignment_hospital = null;
-    updateData.consignment_since = null;
-    updateData.rectified_by = staffName||"Unknown";
-    updateData.rectified_at = new Date().toISOString();
-  } else {
-    updateData.rectified_by = null;
-    updateData.rectified_at = null;
+  if(newStatus==="Parked"&&hospital)updateData.location=hospital;
+  if(newStatus==="Available"){
+    updateData.consignment_hospital=null;
+    updateData.consignment_since=null;
+    updateData.rectified_by=staffName||"Unknown";
+    updateData.rectified_at=new Date().toISOString();
+  }else{
+    updateData.rectified_by=null;
+    updateData.rectified_at=null;
   }
-  await sb.from("inventory").update(updateData).eq("set_number", setNum);
-
-  // Log to activity log
-  const label = newStatus==="Available"?"🟢 Available":newStatus==="Parked"?"🅿️ Parked":"🔬 Quarantine";
-  const noteText = newStatus==="Parked"?` @ ${hospital||"-"}`:newStatus==="Quarantine"?" — blocked for inspection":"";
+  await sb.from("inventory").update(updateData).eq("set_number",setNum);
+  const label=newStatus==="Available"?"🟢 Available":newStatus==="Parked"?"🅿️ Parked":newStatus==="Repeat"?"🔁 Repeat":"🔬 Quarantine";
+  const noteText=newStatus==="Parked"?` @ ${hospital||"-"}`:newStatus==="Quarantine"?" — blocked for inspection":"";
   await sb.from("activity_log").insert({
-    action: "Status Change",
-    hospital: newStatus==="Parked"?(hospital||"-"):"-",
-    surgeon: staffName||"Unknown",
-    pic: staffName||"Unknown",
-    set_numbers: `${setNum}: ${label}${noteText}`,
-    set_count: 1,
-    has_photo: false
+    action:"Status Change",
+    hospital:newStatus==="Parked"?(hospital||"-"):"-",
+    surgeon:staffName||"Unknown",
+    pic:staffName||"Unknown",
+    set_numbers:`${setNum}: ${label}${noteText}`,
+    set_count:1,has_photo:false
   });
-
   toast(setNum+" → "+label+(hospital?" @ "+hospital:"")+(staffName?" by "+staffName:""));
   await loadAll();
 }
 
 function submitParkModal() {
-  const pm = state.parkModal;
-  if(!pm) return;
-  const nameEl = document.getElementById("parkStaffName");
-  const hospitalEl = document.getElementById("parkHospital");
-  if(nameEl) pm.staffName = nameEl.value.trim();
-  if(hospitalEl) pm.hospital = hospitalEl.value.trim();
-  if(!pm.newStatus){ alert("Please select a status!"); return; }
-  if(!pm.staffName){ alert("Please enter your name!"); return; }
-  if(pm.newStatus==="Parked" && !pm.hospital){ alert("Please enter hospital name!"); return; }
-  doQuickStatus(pm.setNumber, pm.newStatus, pm.hospital, pm.since, pm.staffName);
+  const pm=state.parkModal;
+  if(!pm)return;
+  const nameEl=document.getElementById("parkStaffName");
+  const hospitalEl=document.getElementById("parkHospital");
+  if(nameEl)pm.staffName=nameEl.value.trim();
+  if(hospitalEl)pm.hospital=hospitalEl.value.trim();
+  if(!pm.newStatus){alert("Please select a status!");return;}
+  if(!pm.staffName){alert("Please enter your name!");return;}
+  if(pm.newStatus==="Parked"&&!pm.hospital){alert("Please enter hospital name!");return;}
+  doQuickStatus(pm.setNumber,pm.newStatus,pm.hospital,pm.since,pm.staffName);
 }
 function reqMarkAvailable(setNum) {
   const inv=state.inventory.find(i=>i.setNumber===setNum);
   const fn=()=>{
-    state.modal=null; // clear PIN modal first
+    state.modal=null;
     state.parkModal={setNumber:setNum,currentStatus:inv?.availability||"Available",newStatus:"",hospital:"",since:new Date().toISOString().split("T")[0],staffName:""};
     render();
   };
   if(state.invUnlocked)fn();else{state.modal={type:"pin",fn,input:"",error:""};render();}
 }
 
-// ── EXPORT FUNCTIONS ────────────────────────────────────
 function exportActivityCSV() {
-  const actLogs = state.activityLog.filter(e=>e.action!=="Status Change");
-  const h = ["Date/Time","Action","Hospital","Surgeon","PIC","Sets","Set Count","Has Photo"];
-  const rows = actLogs.map(e=>[e.ts, e.action, e.hospital, e.surgeon, e.surgeon, e.sets, e.count, e.hasPhoto?"Yes":"No"]);
-  const csv = [h,...rows].map(r=>r.map(c=>"\""+(c||"")+"\"").join(",")).join("\n");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
-  a.download = `ActivityLog_${new Date().toISOString().split("T")[0]}.csv`;
-  a.click();
-  toast("📥 Activity log exported!");
+  const actLogs=state.activityLog.filter(e=>e.action!=="Status Change");
+  const h=["Date/Time","Action","Hospital","Surgeon","PIC","Sets","Set Count","Has Photo"];
+  const rows=actLogs.map(e=>[e.ts,e.action,e.hospital,e.surgeon,e.surgeon,e.sets,e.count,e.hasPhoto?"Yes":"No"]);
+  const csv=[h,...rows].map(r=>r.map(c=>'"'+(c||"")+'"').join(",")).join("\n");
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download=`ActivityLog_${new Date().toISOString().split("T")[0]}.csv`;
+  a.click();toast("📥 Activity log exported!");
 }
 
 function exportRectifyCSV() {
-  const rectLogs = state.activityLog.filter(e=>e.action==="Status Change");
-  const h = ["Date/Time","Set / Status Change","Rectified By"];
-  const rows = rectLogs.map(e=>[e.ts, e.sets, e.surgeon]);
-  const csv = [h,...rows].map(r=>r.map(c=>"\""+(c||"")+"\"").join(",")).join("\n");
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
-  a.download = `RectificationLog_${new Date().toISOString().split("T")[0]}.csv`;
-  a.click();
-  toast("📥 Rectification log exported!");
+  const rectLogs=state.activityLog.filter(e=>e.action==="Status Change");
+  const h=["Date/Time","Set / Status Change","Rectified By"];
+  const rows=rectLogs.map(e=>[e.ts,e.sets,e.surgeon]);
+  const csv=[h,...rows].map(r=>r.map(c=>'"'+(c||"")+'"').join(",")).join("\n");
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download=`RectificationLog_${new Date().toISOString().split("T")[0]}.csv`;
+  a.click();toast("📥 Rectification log exported!");
 }
 
 // ── STAFF MODAL ──────────────────────────────────────────
-function reqStaffAction(action, fn) {
-  state.staffModal = { action, fn, name:"", password:"", error:"" };
+function reqStaffAction(action,fn) {
+  state.staffModal={action,fn,name:"",password:"",error:""};
   render();
-  setTimeout(()=>document.getElementById("staffNameSel")?.focus(), 50);
+  setTimeout(()=>document.getElementById("staffNameSel")?.focus(),50);
 }
 
+// FIX: name now tracked reactively via onchange; no DOM read fallback needed
 async function submitStaffModal() {
-  const sm = state.staffModal;
-  const nameEl = document.getElementById("staffNameSel");
-  const passEl = document.getElementById("staffPassInput");
-  if(nameEl) sm.name = nameEl.value;
-  if(passEl) sm.password = passEl.value;
-  
-  if(!sm.name) { sm.error = "Please select your name"; render(); return; }
-  if(!sm.password) { sm.error = "Please enter your password"; render(); return; }
-  
-  // Verify against staff table
-  const staff = state.staff.find(s=>s.name===sm.name);
-  if(!staff) { sm.error = "Staff not found"; render(); return; }
-  if(staff.password !== sm.password) { sm.error = "Wrong password. Try again."; sm.password=""; render(); return; }
-  
-  // Verified! Run the action
-  const fn = sm.fn;
-  const staffName = sm.name;
-  state.staffModal = null;
+  const sm=state.staffModal;
+  // Still read DOM as fallback in case onchange missed
+  const nameEl=document.getElementById("staffNameSel");
+  const passEl=document.getElementById("staffPassInput");
+  if(nameEl&&nameEl.value)sm.name=nameEl.value;
+  if(passEl&&passEl.value)sm.password=passEl.value;
+
+  if(!sm.name){sm.error="Please select your name";render();return;}
+  if(!sm.password){sm.error="Please enter your password";render();return;}
+
+  const staff=state.staff.find(s=>s.name===sm.name);
+  if(!staff){sm.error="Staff not found";render();return;}
+  if(staff.password!==sm.password){sm.error="Wrong password. Try again.";sm.password="";render();return;}
+
+  const fn=sm.fn;
+  const staffName=sm.name;
+  state.staffModal=null;
   fn(staffName);
 }
 
 function showChangePassword() {
-  state.staffModal = null;
-  state.changePwModal = { name:"", oldPass:"", newPass:"", confPass:"", error:"", success:"" };
+  state.staffModal=null;
+  state.changePwModal={name:"",oldPass:"",newPass:"",confPass:"",error:"",success:""};
   render();
 }
 
 async function submitChangePassword() {
-  const cp = state.changePwModal;
-  const nameEl = document.getElementById("cpNameSel");
-  const oldEl = document.getElementById("cpOldPass");
-  const newEl = document.getElementById("cpNewPass");
-  const confEl = document.getElementById("cpConfPass");
-  if(nameEl) cp.name = nameEl.value;
-  if(oldEl) cp.oldPass = oldEl.value;
-  if(newEl) cp.newPass = newEl.value;
-  if(confEl) cp.confPass = confEl.value;
+  const cp=state.changePwModal;
+  const nameEl=document.getElementById("cpNameSel");
+  const oldEl=document.getElementById("cpOldPass");
+  const newEl=document.getElementById("cpNewPass");
+  const confEl=document.getElementById("cpConfPass");
+  if(nameEl&&nameEl.value)cp.name=nameEl.value;
+  if(oldEl&&oldEl.value)cp.oldPass=oldEl.value;
+  if(newEl&&newEl.value)cp.newPass=newEl.value;
+  if(confEl&&confEl.value)cp.confPass=confEl.value;
 
-  if(!cp.name) { cp.error="Please select your name"; render(); return; }
-  if(!cp.oldPass) { cp.error="Please enter your current password"; render(); return; }
-  if(!cp.newPass) { cp.error="Please enter a new password"; render(); return; }
-  if(cp.newPass.length < 4) { cp.error="New password must be at least 4 characters"; render(); return; }
-  if(cp.newPass !== cp.confPass) { cp.error="New passwords do not match"; render(); return; }
+  if(!cp.name){cp.error="Please select your name";render();return;}
+  if(!cp.oldPass){cp.error="Please enter your current password";render();return;}
+  if(!cp.newPass){cp.error="Please enter a new password";render();return;}
+  if(cp.newPass.length<4){cp.error="New password must be at least 4 characters";render();return;}
+  if(cp.newPass!==cp.confPass){cp.error="New passwords do not match";render();return;}
 
-  const staff = state.staff.find(s=>s.name===cp.name);
-  if(!staff) { cp.error="Staff not found"; render(); return; }
-  if(staff.password !== cp.oldPass) { cp.error="Current password is wrong"; render(); return; }
+  const staff=state.staff.find(s=>s.name===cp.name);
+  if(!staff){cp.error="Staff not found";render();return;}
+  if(staff.password!==cp.oldPass){cp.error="Current password is wrong";render();return;}
 
-  await sb.from("staff").update({ password: cp.newPass }).eq("name", cp.name);
-  state.staff = state.staff.map(s=>s.name===cp.name?{...s,password:cp.newPass}:s);
-  cp.error = "";
-  cp.success = "Password changed successfully!";
-  cp.oldPass = ""; cp.newPass = ""; cp.confPass = "";
+  await sb.from("staff").update({password:cp.newPass}).eq("name",cp.name);
+  state.staff=state.staff.map(s=>s.name===cp.name?{...s,password:cp.newPass}:s);
+  cp.error="";cp.success="Password changed successfully!";
+  cp.oldPass="";cp.newPass="";cp.confPass="";
   render();
-  setTimeout(()=>{ state.changePwModal=null; render(); }, 2000);
+  setTimeout(()=>{state.changePwModal=null;render();},2000);
 }
 
 // ── INIT ─────────────────────────────────────────────────
-function acceptDisclaimer() {
-  state.disclaimerAccepted = true;
-  render();
-}
+function acceptDisclaimer() { state.disclaimerAccepted=true;render(); }
 loadAll();
 </script>
 </body>
 </html>
+
