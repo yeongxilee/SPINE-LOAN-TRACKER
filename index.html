@@ -58,6 +58,12 @@ const NOTIFY_NUMBER = "120363407690390234@g.us";
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+// ── PHOTO CACHE — avoids embedding massive base64 strings in innerHTML on every render ──
+// Photos are stored once here; HTML references by cache key (much faster re-renders)
+const _photoCache = {};
+function cachePhoto(key, dataUrl) { _photoCache[key] = dataUrl; return key; }
+function photoSrc(key) { return _photoCache[key] || ""; }
+
 async function sendWhatsApp(message) {
   try {
     const formData = new FormData();
@@ -167,7 +173,11 @@ async function loadAll() {
     id:l.id, loanNumber:l.loan_number||0, hospital:l.hospital, surgeon:l.surgeon, pic:l.pic||"",
     borrowDate:l.borrow_date, returnDate:l.return_date||"", status:l.status, caseNote:l.case_note||"",
     sets:(l.loan_sets||[]).map(s=>({setNumber:s.set_number,description:s.description||"",brand:s.brand||"",sn:s.sn||"",condition:s.condition||"Good"})),
-    photos:(l.loan_photos||[]).map(p=>({dataUrl:p.photo_url,ts:p.taken_at||""})),
+    photos:(l.loan_photos||[]).map(p=>{
+      const _dk="db_"+p.photo_url.slice(-16).replace(/[^a-zA-Z0-9]/g,"_");
+      cachePhoto(_dk,p.photo_url);
+      return {dataUrl:p.photo_url,cacheKey:_dk,ts:p.taken_at||""};
+    }),
   }));
   state.activityLog = (log.data||[]).map(e=>({
     id:e.id, ts:new Date(e.created_at).toLocaleString("en-MY"),
@@ -367,9 +377,8 @@ async function deleteInvItem(setNumber) {
 
 // ── RENDER ───────────────────────────────────────────────
 function render() {
-  const _appEl = document.getElementById("app");
-  const _sy = _appEl ? _appEl.scrollTop : 0;
   const app = document.getElementById("app");
+  const _sy = app ? app.scrollTop : 0;
   if (state.loading) return;
 
   if (!state.disclaimerAccepted) {
@@ -534,7 +543,7 @@ function render() {
           </div>
           ${f.photos.length>0?`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
             ${f.photos.map((p,i)=>`<div style="position:relative;border-radius:8px;overflow:hidden;border:2px solid #dbeafe;aspect-ratio:1;">
-              <img src="${p.dataUrl}" style="width:100%;height:100%;object-fit:cover;"/>
+              <img src="${photoSrc(p.cacheKey||'')||p.dataUrl||''}" style="width:100%;height:100%;object-fit:cover;"/>
               <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.65);padding:2px 4px;font-size:8px;color:white;text-align:center;">${p.compressedKB?p.compressedKB+"KB ✓":p.ts}</div>
               <button onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:#dc2626;border:none;border-radius:50%;width:18px;height:18px;cursor:pointer;color:white;font-size:11px;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;">×</button>
             </div>`).join("")}
@@ -559,7 +568,7 @@ function render() {
                 <span style="color:#94a3b8;font-size:12px;">${(state.setDropOpen||{})[i]?"▲":"▼"}</span>
               </div>
               ${(state.setDropOpen||{})[i]?`
-              <div style="border:1px solid #dbeafe;border-top:none;border-radius:0 0 8px 8px;background:white;max-height:320px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+              <div data-dropdown-scroll="1" style="border:1px solid #dbeafe;border-top:none;border-radius:0 0 8px 8px;background:white;max-height:320px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
                 ${(()=>{
                   const cats=[...new Set(state.inventory.map(x=>x.description))].sort();
                   return cats.map((cat,catIdx)=>{
@@ -687,7 +696,7 @@ function render() {
             ${l.caseNote?`<div style="font-size:10px;color:#64748b;margin-bottom:6px;">📝 ${l.caseNote}</div>`:""}
             ${l.photos?.length>0?`<div style="display:flex;gap:5px;margin-bottom:8px;overflow-x:auto;">
               ${l.photos.map((p,i)=>`<div onclick="openPhotoView('${l.id}',${i})" style="flex-shrink:0;width:52px;height:52px;border-radius:7px;overflow:hidden;border:2px solid #dbeafe;cursor:pointer;">
-                <img src="${p.dataUrl}" style="width:100%;height:100%;object-fit:cover;"/>
+                <img src="${photoSrc(p.cacheKey||'')||p.dataUrl||''}" style="width:100%;height:100%;object-fit:cover;"/>
               </div>`).join("")}
             </div>`:""}
             ${l.sets?.map(s=>{
@@ -975,7 +984,7 @@ function render() {
             </div>
             ${r.photos.length>0?`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
               ${r.photos.map((p,i)=>`<div style="position:relative;border-radius:8px;overflow:hidden;border:2px solid #bbf7d0;aspect-ratio:1;">
-                <img src="${p.dataUrl}" style="width:100%;height:100%;object-fit:cover;"/>
+                <img src="${photoSrc(p.cacheKey||'')||p.dataUrl||''}" style="width:100%;height:100%;object-fit:cover;"/>
                 <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.6);padding:2px 4px;font-size:8px;color:white;text-align:center;">${p.compressedKB?p.compressedKB+"KB ✓":""}</div>
                 <button onclick="removeReturnPhoto(${i})" style="position:absolute;top:2px;right:2px;background:#dc2626;border:none;border-radius:50%;width:16px;height:16px;cursor:pointer;color:white;font-size:10px;line-height:1;padding:0;">×</button>
               </div>`).join("")}
@@ -1106,11 +1115,11 @@ function render() {
           <span style="color:white;font-weight:700;font-size:14px;">📷 Photo ${idx+1} of ${photos.length}</span>
           <button onclick="closePhotoView()" style="background:rgba(255,255,255,0.15);border:none;color:white;border-radius:20px;padding:4px 12px;cursor:pointer;font-size:13px;font-weight:700;font-family:inherit;">✕ Close</button>
         </div>
-        <img src="${photos[idx]?.dataUrl||""}" style="width:100%;border-radius:10px;border:2px solid rgba(255,255,255,0.2);"/>
+        <img src="${photoSrc(photos[idx]?.cacheKey||'')||photos[idx]?.dataUrl||''}" style="width:100%;border-radius:10px;border:2px solid rgba(255,255,255,0.2);"/>
         <div style="color:rgba(255,255,255,0.6);font-size:11px;text-align:center;margin-top:8px;">${photos[idx]?.ts||""}</div>
         ${photos.length>1?`<div style="display:flex;gap:6px;margin-top:12px;justify-content:center;">
           ${photos.map((_,i)=>`<div onclick="setPhotoIdx(${i})" style="width:44px;height:44px;border-radius:6px;overflow:hidden;border:2px solid ${i===idx?"#60a5fa":"rgba(255,255,255,0.2)"};cursor:pointer;flex-shrink:0;">
-            <img src="${photos[i].dataUrl}" style="width:100%;height:100%;object-fit:cover;"/>
+            <img src="${photoSrc(photos[i].cacheKey||'')||photos[i].dataUrl||''}" style="width:100%;height:100%;object-fit:cover;"/>
           </div>`).join("")}
         </div>`:""}
       </div>
@@ -1292,9 +1301,12 @@ function render() {
 
 // ── EVENT HANDLERS ───────────────────────────────────────
 function switchTab(t) { state.tab=t; state.showForm=false; state.showInvForm=false; state.selectLogMode=false; state.selectedLogs=[]; render(); }
-function updateSearch(v) { state.search=v; render(); }
+// Debounced search — avoids re-rendering on every keystroke with 140+ sets
+let _searchTimer = null;
+function updateSearch(v) { state.search=v; clearTimeout(_searchTimer); _searchTimer=setTimeout(render, 120); }
 function updateFStatus(v) { state.fStatus=v; render(); }
-function updateInvSearch(v) { state.invSearch=v; render(); }
+let _invSearchTimer = null;
+function updateInvSearch(v) { state.invSearch=v; clearTimeout(_invSearchTimer); _invSearchTimer=setTimeout(render, 120); }
 function updateInvCat(v) { state.invCat=v; render(); }
 function updateInvAvail(v) { state.invAvail=v; render(); }
 function toggleForm() { state.showForm=!state.showForm; if(!state.showForm){state.editId=null;state.form=emptyForm();} render(); }
@@ -1320,18 +1332,17 @@ function toggleSetDrop(i) {
 }
 function toggleSetDropCatByKey(e,key) {
   if(e){e.stopPropagation();e.preventDefault();}
-  let scrollContainer=e.target;
-  while(scrollContainer&&scrollContainer.scrollHeight<=scrollContainer.clientHeight){scrollContainer=scrollContainer.parentElement;}
-  const savedScroll=scrollContainer?scrollContainer.scrollTop:0;
+  // Save scroll of the nearest scrollable ancestor (the set dropdown list)
+  let sc=e.target;
+  while(sc&&!(sc.scrollHeight>sc.clientHeight+2)){sc=sc.parentElement;}
+  const savedScroll=sc?sc.scrollTop:0;
   state.setDropCats=state.setDropCats||{};
   state.setDropCats[key]=!state.setDropCats[key];
   render();
+  // Restore scroll — find the open dropdown by its overflow-y:auto style
   setTimeout(()=>{
-    const dropdowns=document.querySelectorAll('div[style*="max-height:320px"]');
-    dropdowns.forEach(d=>{
-      const inner=d.querySelector('div[style*="overflow-y:auto"]')||d;
-      if(inner.scrollHeight>inner.clientHeight){inner.scrollTop=savedScroll;}
-    });
+    const el=document.querySelector('[data-dropdown-scroll="1"]');
+    if(el) el.scrollTop=savedScroll;
   },5);
 }
 function selectSet(i,setNum) {
@@ -1391,7 +1402,9 @@ function compressPhoto(file,callback) {
 function handlePhoto(event) {
   Array.from(event.target.files).forEach(file=>{
     compressPhoto(file,(dataUrl,orig,compressedKB)=>{
-      state.form.photos.push({dataUrl,name:file.name,ts:new Date().toLocaleTimeString("en-MY"),compressedKB});
+      const _k = "lf_"+Date.now()+"_"+Math.random().toString(36).substr(2,4);
+      cachePhoto(_k, dataUrl);
+      state.form.photos.push({dataUrl,cacheKey:_k,name:file.name,ts:new Date().toLocaleTimeString("en-MY"),compressedKB});
       render();
     });
   });
@@ -1459,7 +1472,9 @@ function submitReturn() {
 function handleReturnPhoto(event) {
   Array.from(event.target.files).forEach(file=>{
     compressPhoto(file,(dataUrl,orig,compressedKB)=>{
-      state.returnModal.photos.push({dataUrl,name:file.name,ts:new Date().toLocaleTimeString("en-MY"),compressedKB});
+      const _rk = "rf_"+Date.now()+"_"+Math.random().toString(36).substr(2,4);
+      cachePhoto(_rk, dataUrl);
+      state.returnModal.photos.push({dataUrl,cacheKey:_rk,name:file.name,ts:new Date().toLocaleTimeString("en-MY"),compressedKB});
       render();
     });
   });
