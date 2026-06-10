@@ -58,11 +58,7 @@ const NOTIFY_NUMBER = "120363407690390234@g.us";
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-// ── PHOTO CACHE — avoids embedding massive base64 strings in innerHTML on every render ──
-// Photos are stored once here; HTML references by cache key (much faster re-renders)
-const _photoCache = {};
-function cachePhoto(key, dataUrl) { _photoCache[key] = dataUrl; return key; }
-function photoSrc(key) { return _photoCache[key] || ""; }
+const MENTION_NUMBERS = ["60122120665","60183677445","60122839658","60179785007","60126668485","60136779820","60178791246","60129515163","601110993687"];
 
 async function sendWhatsApp(message) {
   try {
@@ -70,6 +66,7 @@ async function sendWhatsApp(message) {
     formData.append("target", NOTIFY_NUMBER);
     formData.append("message", message);
     formData.append("countryCode", "60");
+    formData.append("mentions", MENTION_NUMBERS.join(","));
     await fetch("https://api.fonnte.com/send", {
       method: "POST",
       headers: { "Authorization": FONNTE_TOKEN },
@@ -136,6 +133,8 @@ let state = {
   disclaimerAccepted: false,
   selectedLogs: [],
   selectLogMode: false,
+  selectLoanMode: false,
+  selectedLoans: [],
   repairModal: null,
 };
 
@@ -173,11 +172,7 @@ async function loadAll() {
     id:l.id, loanNumber:l.loan_number||0, hospital:l.hospital, surgeon:l.surgeon, pic:l.pic||"",
     borrowDate:l.borrow_date, returnDate:l.return_date||"", status:l.status, caseNote:l.case_note||"",
     sets:(l.loan_sets||[]).map(s=>({setNumber:s.set_number,description:s.description||"",brand:s.brand||"",sn:s.sn||"",condition:s.condition||"Good"})),
-    photos:(l.loan_photos||[]).map(p=>{
-      const _dk="db_"+p.photo_url.slice(-16).replace(/[^a-zA-Z0-9]/g,"_");
-      cachePhoto(_dk,p.photo_url);
-      return {dataUrl:p.photo_url,cacheKey:_dk,ts:p.taken_at||""};
-    }),
+    photos:(l.loan_photos||[]).map(p=>({dataUrl:p.photo_url,ts:p.taken_at||""})),
   }));
   state.activityLog = (log.data||[]).map(e=>({
     id:e.id, ts:new Date(e.created_at).toLocaleString("en-MY"),
@@ -230,10 +225,25 @@ async function saveLoan() {
     const f2 = state.form;
     const setList = valid.map(s=>s.setNumber).join(", ");
     if (!state.editId) {
-      const msg = `🦴 *SPINE LOAN TRACKER*\n📤 *New Loan Created*\n\n🏥 Hospital: ${f2.hospital}\n👨‍⚕️ Surgeon: ${f2.surgeon}\n👤 PIC: ${f2.pic||"-"}\n📅 Out: ${f2.borrowDate}\n🔄 Due: ${f2.returnDate||"-"}\n📦 Sets (${valid.length}): ${setList}\n📝 Note: ${f2.caseNote||"-"}\n📷 Photos: ${f2.photos.length} attached`;
+      const msg = `🦴 *SPINE LOAN TRACKER*\
+📤 *New Loan Created*\
+\
+🏥 Hospital: ${f2.hospital}\
+👨‍⚕️ Surgeon: ${f2.surgeon}\
+👤 PIC: ${f2.pic||"-"}\
+📅 Out: ${f2.borrowDate}\
+🔄 Due: ${f2.returnDate||"-"}\
+📦 Sets (${valid.length}): ${setList}\
+📝 Note: ${f2.caseNote||"-"}\
+📷 Photos: ${f2.photos.length} attached`;
       sendWhatsApp(msg);
     } else {
-      const msg = `🦴 *SPINE LOAN TRACKER*\n✏️ *Loan Updated*\n\n🏥 Hospital: ${f2.hospital}\n👨‍⚕️ Surgeon: ${f2.surgeon}\n📦 Sets: ${setList}`;
+      const msg = `🦴 *SPINE LOAN TRACKER*\
+✏️ *Loan Updated*\
+\
+🏥 Hospital: ${f2.hospital}\
+👨‍⚕️ Surgeon: ${f2.surgeon}\
+📦 Sets: ${setList}`;
       sendWhatsApp(msg);
     }
     state.showForm=false; state.editId=null; state.form=emptyForm();
@@ -299,7 +309,16 @@ async function returnLoan(id, returnPhotos, conditions, returnNote, returnParkHo
       return `${k}: ${v}${reason}`;
     }).join(", ") : "";
 
-  const msg2 = `🦴 *SPINE LOAN TRACKER*\n✅ *Sets Returned*\n\n🏥 Hospital: ${loan.hospital}\n👨‍⚕️ Surgeon: ${loan.surgeon}\n👤 Staff: ${state.returnModal?.staffName||"-"}\n📦 Sets (${loan.sets.length}): ${loan.sets.map(s=>s.setNumber).join(", ")}${condSummary?"\n🔍 Status: "+condSummary:""}${returnNote?"\n📝 Note: "+returnNote:""}\n📷 Return photos: ${(returnPhotos||[]).length}`;
+  const msg2 = `🦴 *SPINE LOAN TRACKER*\
+✅ *Sets Returned*\
+\
+🏥 Hospital: ${loan.hospital}\
+👨‍⚕️ Surgeon: ${loan.surgeon}\
+👤 Staff: ${state.returnModal?.staffName||"-"}\
+📦 Sets (${loan.sets.length}): ${loan.sets.map(s=>s.setNumber).join(", ")}${condSummary?"\
+🔍 Status: "+condSummary:""}${returnNote?"\
+📝 Note: "+returnNote:""}\
+📷 Return photos: ${(returnPhotos||[]).length}`;
   sendWhatsApp(msg2);
 
   toast("✅ Marked as returned!");
@@ -311,7 +330,12 @@ async function deleteLoan(id) {
   const loan = state.loans.find(l=>l.id===id);
   await sb.from("loans").delete().eq("id",id);
   await sb.from("activity_log").insert({ action:"Deleted", hospital:loan.hospital, surgeon:loan.surgeon, set_numbers:loan.sets.map(s=>s.setNumber).join(", "), set_count:loan.sets.length });
-  const msg3 = `🦴 *SPINE LOAN TRACKER*\n🗑️ *Loan Record Deleted*\n\n🏥 Hospital: ${loan.hospital}\n👨‍⚕️ Surgeon: ${loan.surgeon}\n📦 Sets: ${loan.sets.map(s=>s.setNumber).join(", ")}`;
+  const msg3 = `🦴 *SPINE LOAN TRACKER*\
+🗑️ *Loan Record Deleted*\
+\
+🏥 Hospital: ${loan.hospital}\
+👨‍⚕️ Surgeon: ${loan.surgeon}\
+📦 Sets: ${loan.sets.map(s=>s.setNumber).join(", ")}`;
   sendWhatsApp(msg3);
   toast("🗑️ Loan deleted"); await loadAll();
 }
@@ -377,8 +401,9 @@ async function deleteInvItem(setNumber) {
 
 // ── RENDER ───────────────────────────────────────────────
 function render() {
+  const _appEl = document.getElementById("app");
+  const _sy = _appEl ? _appEl.scrollTop : 0;
   const app = document.getElementById("app");
-  const _sy = app ? app.scrollTop : 0;
   if (state.loading) return;
 
   if (!state.disclaimerAccepted) {
@@ -424,6 +449,7 @@ function render() {
   const totalOut = state.loans.filter(l=>l.status==="Out").length;
   const totalRet = state.loans.filter(l=>l.status==="Returned").length;
 
+  let filteredLoansCache = [];
   const filteredLoans = state.loans.filter(l=>{
     const s=state.search.toLowerCase();
     const m=l.sets?.some(st=>st.setNumber?.toLowerCase().includes(s)||st.description?.toLowerCase().includes(s))||l.hospital?.toLowerCase().includes(s)||l.surgeon?.toLowerCase().includes(s);
@@ -431,13 +457,10 @@ function render() {
       const hasRepeat=(l.sets||[]).some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Repeat"; });
       return m&&hasRepeat;
     }
-    if(state.fStatus==="Quarantine"){
-      const hasQuarantine=(l.sets||[]).some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Quarantine"; });
-      return m&&hasQuarantine;
-    }
     return m&&(state.fStatus==="All"||l.status===state.fStatus);
   });
 
+  filteredLoansCache = filteredLoans;
   const invCats = [...new Set(state.inventory.map(i=>i.description))].sort();
   const filteredInv = state.inventory.filter(i=>{
     const s=state.invSearch.toLowerCase();
@@ -499,13 +522,25 @@ function render() {
         <option ${state.fStatus==="All"?"selected":""}>All</option>
         <option ${state.fStatus==="Out"?"selected":""}>Out</option>
         <option ${state.fStatus==="Repeat"?"selected":""}>Repeat</option>
-        <option ${state.fStatus==="Quarantine"?"selected":""}>Quarantine</option>
         <option ${state.fStatus==="Returned"?"selected":""}>Returned</option>
       </select>
     </div>
-    <button onclick="toggleForm()" style="${B("#1d4ed8","white","width:100%;padding:10px;font-size:13px;margin-bottom:12px;")}">
-      ${state.showForm?"✕ Cancel":"+ New Loan"}
-    </button>`;
+    <div style="display:flex;gap:8px;margin-bottom:12px;">
+      <button onclick="toggleForm()" style="${B("#1d4ed8","white","flex:1;padding:10px;font-size:13px;")}">
+        ${state.showForm?"✕ Cancel":"+ New Loan"}
+      </button>
+      <button onclick="toggleLoanSelectMode()" style="padding:10px 14px;border-radius:7px;border:1px solid ${state.selectLoanMode?"#dc2626":"#cbd5e1"};background:${state.selectLoanMode?"#fef2f2":"white"};color:${state.selectLoanMode?"#dc2626":"#64748b"};font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">${state.selectLoanMode?"✕ Cancel":"☑️ Select"}</button>
+    </div>`;
+    if (state.selectLoanMode) {
+      const _hasSel = state.selectedLoans.length > 0;
+      const _allSel = state.selectedLoans.length === filteredLoans.length && filteredLoans.length > 0;
+      html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;padding:8px 12px;background:${_hasSel?"#fef2f2":"#f8fafc"};border-radius:8px;border:1px solid ${_hasSel?"#fecaca":"#e2e8f0"};">
+        <button onclick="toggleSelectAllLoans()" style="font-size:11px;color:#1d4ed8;background:none;border:none;cursor:pointer;font-family:inherit;font-weight:600;">${_allSel?"☑️ Deselect All":"☐ Select All ("+filteredLoans.length+")"}</button>
+        <span style="font-size:12px;font-weight:700;color:${_hasSel?"#dc2626":"#94a3b8"};">${_hasSel?state.selectedLoans.length+" selected":"Tap loans to select"}</span>
+        ${_hasSel?`<button onclick="reqDeleteSelectedLoans()" style="padding:5px 14px;border-radius:20px;border:none;background:#dc2626;color:white;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">🗑️ Delete (${state.selectedLoans.length})</button>`:`<span style="width:80px;"></span>`}
+      </div>`;
+    }
+    html += ``;
 
     if (state.showForm) {
       const f = state.form;
@@ -543,7 +578,7 @@ function render() {
           </div>
           ${f.photos.length>0?`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
             ${f.photos.map((p,i)=>`<div style="position:relative;border-radius:8px;overflow:hidden;border:2px solid #dbeafe;aspect-ratio:1;">
-              <img src="${photoSrc(p.cacheKey||'')||p.dataUrl||''}" style="width:100%;height:100%;object-fit:cover;"/>
+              <img src="${p.dataUrl}" style="width:100%;height:100%;object-fit:cover;"/>
               <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.65);padding:2px 4px;font-size:8px;color:white;text-align:center;">${p.compressedKB?p.compressedKB+"KB ✓":p.ts}</div>
               <button onclick="removePhoto(${i})" style="position:absolute;top:2px;right:2px;background:#dc2626;border:none;border-radius:50%;width:18px;height:18px;cursor:pointer;color:white;font-size:11px;display:flex;align-items:center;justify-content:center;padding:0;line-height:1;">×</button>
             </div>`).join("")}
@@ -568,7 +603,7 @@ function render() {
                 <span style="color:#94a3b8;font-size:12px;">${(state.setDropOpen||{})[i]?"▲":"▼"}</span>
               </div>
               ${(state.setDropOpen||{})[i]?`
-              <div data-dropdown-scroll="1" style="border:1px solid #dbeafe;border-top:none;border-radius:0 0 8px 8px;background:white;max-height:320px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
+              <div style="border:1px solid #dbeafe;border-top:none;border-radius:0 0 8px 8px;background:white;max-height:320px;overflow-y:auto;box-shadow:0 4px 12px rgba(0,0,0,0.1);">
                 ${(()=>{
                   const cats=[...new Set(state.inventory.map(x=>x.description))].sort();
                   return cats.map((cat,catIdx)=>{
@@ -645,8 +680,11 @@ function render() {
       filteredLoans.forEach(l=>{
         const overdue=isOverdue(l); const exp=state.expandedId===l.id;
         const c_str=overdue?"#dc2626":l.status==="Out"?"#1d4ed8":"#16a34a";
-        html += `<div style="background:white;border-radius:10px;padding:12px;margin-bottom:8px;border-left:4px solid ${c_str};box-shadow:0 1px 2px rgba(0,0,0,0.05);">
+        const _sel = state.selectedLoans.includes(l.id);
+        const _oc = state.selectLoanMode ? " onclick=\"toggleLoanSelect('"+l.id+"')\"" : "";
+        html += `<div${_oc} style="background:${_sel?"#fef2f2":"white"};border-radius:10px;padding:12px;margin-bottom:8px;border-left:4px solid ${_sel?"#dc2626":c_str};box-shadow:0 1px 2px rgba(0,0,0,0.05);cursor:${state.selectLoanMode?"pointer":"default"};">
           <div style="display:flex;justify-content:space-between;align-items:center;gap:6px;">
+            ${state.selectLoanMode?`<div style="width:20px;height:20px;border-radius:4px;border:2px solid ${_sel?"#dc2626":"#cbd5e1"};background:${_sel?"#dc2626":"white"};display:flex;align-items:center;justify-content:center;flex-shrink:0;">${_sel?"✓":""}</div>`:""}
             <div style="flex:1;min-width:0;">
               <div style="display:flex;flex-wrap:wrap;gap:4px;align-items:center;margin-bottom:3px;">
                 <span style="font-size:10px;background:#1d4ed8;color:white;padding:1px 7px;border-radius:20px;font-weight:700;">L${String(l.loanNumber||0).padStart(3,"0")}</span>
@@ -679,24 +717,22 @@ function render() {
                 ${l.returnDate?`<span style="font-size:11px;color:#64748b;">→</span><span style="font-size:11px;font-weight:700;color:${overdue?"#dc2626":"#475569"};background:${overdue?"#fef2f2":"#f1f5f9"};padding:2px 8px;border-radius:20px;">${overdue?"⚠️":""} ${fmt(l.returnDate)}</span>`:""}
               </div>
             </div>
-            <div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
+            ${!state.selectLoanMode?`<div style="display:flex;align-items:center;gap:4px;flex-shrink:0;">
               <button onclick="toggleExpand('${l.id}')" style="background:#f1f5f9;border:none;border-radius:6px;padding:4px 8px;cursor:pointer;font-size:11px;color:#1d4ed8;font-family:inherit;font-weight:600;white-space:nowrap;">${exp?"▲":"▼ Sets"}</button>
               ${(()=>{
                 const hasRepeat=(l.sets||[]).some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Repeat"; });
-                const hasStillOut=(l.sets||[]).some(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); return inv?.availability==="Out"; });
-                if(l.status==="Out") return `<button onclick="doReturn('${l.id}')" style="${B("#16a34a","white","font-size:11px;padding:5px 8px;")}">Return</button>`;
-                if(hasRepeat||hasStillOut) return `<button onclick="doReturn('${l.id}')" style="${B("#d97706","white","font-size:11px;padding:5px 8px;")}">🔧 Fix</button>`;
+                if(l.status==="Out"||hasRepeat) return `<button onclick="doReturn('${l.id}')" style="${B("#16a34a","white","font-size:11px;padding:5px 8px;")}">Return</button>`;
                 return "";
               })()}
               <button onclick="editLoan('${l.id}')" style="${B("#f1f5f9","#475569","font-size:11px;padding:5px 8px;")}">✏️</button>
               <button onclick="reqDelete('${l.id}')" style="${B("#fef2f2","#dc2626","font-size:11px;padding:5px 8px;")}">🗑️</button>
-            </div>
+            </div>`:"" }
           </div>
           ${exp?`<div style="margin-top:8px;border-top:1px dashed #e2e8f0;padding-top:8px;">
             ${l.caseNote?`<div style="font-size:10px;color:#64748b;margin-bottom:6px;">📝 ${l.caseNote}</div>`:""}
             ${l.photos?.length>0?`<div style="display:flex;gap:5px;margin-bottom:8px;overflow-x:auto;">
               ${l.photos.map((p,i)=>`<div onclick="openPhotoView('${l.id}',${i})" style="flex-shrink:0;width:52px;height:52px;border-radius:7px;overflow:hidden;border:2px solid #dbeafe;cursor:pointer;">
-                <img src="${photoSrc(p.cacheKey||'')||p.dataUrl||''}" style="width:100%;height:100%;object-fit:cover;"/>
+                <img src="${p.dataUrl}" style="width:100%;height:100%;object-fit:cover;"/>
               </div>`).join("")}
             </div>`:""}
             ${l.sets?.map(s=>{
@@ -958,14 +994,12 @@ function render() {
     });
     const allResolved = unresolvedSets.length === 0;
     const canSubmit = r.photos.length > 0 && allResolved;
-    // Is this a rectification of an already-returned loan with stuck "Out" sets?
-    const isRectify = loan.status === "Returned";
 
     html += `<div style="position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.6);display:flex;align-items:flex-start;justify-content:center;padding-top:20px;z-index:998;overflow-y:auto;">
       <div style="background:#f0f4f8;border-radius:14px;width:95%;max-width:420px;margin-bottom:20px;overflow:hidden;">
-        <div style="background:linear-gradient(135deg,${isRectify?"#92400e,#d97706":"#0f2a5e,#16a34a"});padding:14px 16px;color:white;">
-          <div style="font-size:15px;font-weight:800;">${isRectify?"🔧 Fix Return — Unresolved Sets":"✅ Check-In — Return Sets"}</div>
-          <div style="font-size:11px;opacity:0.85;margin-top:2px;">${isRectify?"Some sets were not resolved on last return · ":""}🏥 ${loan.hospital} · 👨‍⚕️ ${loan.surgeon} · 👤 ${r.staffName||"-"}</div>
+        <div style="background:linear-gradient(135deg,#0f2a5e,#16a34a);padding:14px 16px;color:white;">
+          <div style="font-size:15px;font-weight:800;">✅ Check-In — Return Sets</div>
+          <div style="font-size:11px;opacity:0.85;margin-top:2px;">🏥 ${loan.hospital} · 👨‍⚕️ ${loan.surgeon} · 👤 ${r.staffName||"-"}</div>
         </div>
         <div style="padding:14px;display:flex;flex-direction:column;gap:12px;">
 
@@ -984,7 +1018,7 @@ function render() {
             </div>
             ${r.photos.length>0?`<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;">
               ${r.photos.map((p,i)=>`<div style="position:relative;border-radius:8px;overflow:hidden;border:2px solid #bbf7d0;aspect-ratio:1;">
-                <img src="${photoSrc(p.cacheKey||'')||p.dataUrl||''}" style="width:100%;height:100%;object-fit:cover;"/>
+                <img src="${p.dataUrl}" style="width:100%;height:100%;object-fit:cover;"/>
                 <div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.6);padding:2px 4px;font-size:8px;color:white;text-align:center;">${p.compressedKB?p.compressedKB+"KB ✓":""}</div>
                 <button onclick="removeReturnPhoto(${i})" style="position:absolute;top:2px;right:2px;background:#dc2626;border:none;border-radius:50%;width:16px;height:16px;cursor:pointer;color:white;font-size:10px;line-height:1;padding:0;">×</button>
               </div>`).join("")}
@@ -993,91 +1027,58 @@ function render() {
 
           <!-- Set status section -->
           <div style="background:white;border-radius:10px;padding:14px;">
-            <!-- Section header with progress -->
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
-              <div style="font-weight:700;font-size:12px;color:#0f2a5e;">🔍 Set Status After Return</div>
-              <div style="font-size:10px;font-weight:700;color:${allResolved?"#16a34a":"#dc2626"};background:${allResolved?"#f0fdf4":"#fef2f2"};padding:2px 8px;border-radius:20px;">
-                ${loan.sets.filter(s=>{ const inv=state.inventory.find(i=>i.setNumber===s.setNumber); const a=inv?.availability||"Available"; return a!=="Out"&&r.conditions[s.setNumber]&&r.conditions[s.setNumber]!=="Out"; }).length} / ${loan.sets.length} done
-              </div>
-            </div>
-            <div style="font-size:10px;color:#94a3b8;margin-bottom:12px;">Tap a status button to assign · 🔴 = must assign · ✅ = locked</div>
+            <div style="font-weight:700;font-size:12px;color:#0f2a5e;margin-bottom:4px;">🔍 Set Status After Return</div>
+            <div style="font-size:10px;color:#64748b;margin-bottom:10px;">Assign a status to each set. Sets already returned Good are locked ✅</div>
             ${(()=>{
-              return loan.sets.map((s, setIdx)=>{
+              return loan.sets.map(s=>{
                 const inv = state.inventory.find(i=>i.setNumber===s.setNumber);
                 const invAvail = inv?.availability||"Available";
+                // Lock sets that are already Available in inventory (returned good previously)
                 const isAlreadyAvailable = invAvail === "Available";
-                const currentCond = r.conditions[s.setNumber];
+                const currentCond = r.conditions[s.setNumber]; // "Out" = unresolved, null = unresolved
                 const isUnresolved = !currentCond || currentCond === "Out";
-                const isPreFilled = !isAlreadyAvailable && !isUnresolved;
-                const num = setIdx + 1;
-                const totalSets = loan.sets.length;
-
-                // Number badge — green if done, red if pending, grey if locked
-                const numBg = isAlreadyAvailable ? "#16a34a" : isUnresolved ? "#dc2626" : (RETURN_STATUS.find(st=>st.val===currentCond)||{color:"#64748b"}).color;
 
                 if (isAlreadyAvailable) {
-                  return `<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;">
-                    <!-- Number column -->
-                    <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;">
-                      <div style="width:26px;height:26px;border-radius:50%;background:#16a34a;color:white;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;">${num}</div>
-                      ${num<totalSets?`<div style="width:2px;flex:1;min-height:10px;background:#e2e8f0;margin-top:3px;"></div>`:""}
-                    </div>
-                    <!-- Content -->
-                    <div style="flex:1;background:#f0fdf4;border-radius:8px;padding:10px;border:2px solid #bbf7d0;margin-bottom:${num<totalSets?"0":"0"}px;">
-                      <div style="font-size:10px;font-weight:700;color:#94a3b8;margin-bottom:2px;">${s.setNumber}</div>
-                      <div style="display:flex;justify-content:space-between;align-items:center;">
-                        <span style="font-size:12px;font-weight:700;color:#16a34a;">${s.description||s.setNumber}</span>
-                        <span style="font-size:10px;color:#16a34a;font-weight:700;background:#dcfce7;padding:2px 8px;border-radius:20px;white-space:nowrap;">🟢 Good</span>
-                      </div>
+                  // Locked row — already returned good
+                  return `<div style="background:#f0fdf4;border-radius:8px;padding:10px;margin-bottom:8px;border:2px solid #bbf7d0;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                      <span style="font-size:11px;font-weight:700;color:#16a34a;">✅ ${s.setNumber} — ${s.description}</span>
+                      <span style="font-size:10px;color:#16a34a;font-weight:700;background:#dcfce7;padding:2px 8px;border-radius:20px;">🟢 Returned Good</span>
                     </div>
                   </div>`;
                 }
 
+                // Unresolved set — needs staff to pick a status
                 if (isUnresolved) {
-                  return `<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;">
-                    <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;">
-                      <div style="width:26px;height:26px;border-radius:50%;background:#dc2626;color:white;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;">${num}</div>
-                      ${num<totalSets?`<div style="width:2px;flex:1;min-height:10px;background:#e2e8f0;margin-top:3px;"></div>`:""}
-                    </div>
-                    <div style="flex:1;background:#fef2f2;border-radius:8px;padding:10px;border:2px solid #fecaca;">
-                      <div style="font-size:10px;font-weight:700;color:#94a3b8;margin-bottom:2px;">${s.setNumber}</div>
-                      <div style="font-size:12px;font-weight:700;color:#dc2626;margin-bottom:8px;">${s.description||s.setNumber} <span style="font-size:9px;background:#dc2626;color:white;padding:1px 5px;border-radius:8px;vertical-align:middle;">Required</span></div>
-                      <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;">
-                        ${RETURN_STATUS.map(st=>`<button onclick="state.returnModal.conditions['${s.setNumber}']='${st.val}';render()" style="padding:8px 6px;border:2px solid ${st.color};border-radius:7px;background:${st.bg};cursor:pointer;font-size:11px;font-weight:700;color:${st.color};font-family:inherit;text-align:center;line-height:1.3;">${st.icon}<br/><span style="font-size:9px;">${st.label}</span></button>`).join("")}
-                      </div>
+                  return `<div style="background:#fef2f2;border-radius:8px;padding:10px;margin-bottom:8px;border:2px solid #fecaca;">
+                    <div style="font-size:11px;font-weight:700;color:#dc2626;margin-bottom:8px;">🔴 ${s.setNumber} — ${s.description} <span style="font-size:10px;background:#dc2626;color:white;padding:1px 6px;border-radius:10px;">Action Required</span></div>
+                    <div style="display:flex;flex-direction:column;gap:5px;">
+                      ${RETURN_STATUS.map(st=>`<button onclick="state.returnModal.conditions['${s.setNumber}']='${st.val}';render()" style="padding:9px 12px;border:2px solid ${st.color};border-radius:7px;background:${st.bg};cursor:pointer;font-size:12px;font-weight:700;color:${st.color};font-family:inherit;text-align:left;">${st.icon} ${st.label}</button>`).join("")}
                     </div>
                   </div>`;
                 }
 
-                // Resolved (selected or pre-filled)
+                // Resolved — show selection with option to change
                 const chosen = RETURN_STATUS.find(st=>st.val===currentCond)||RETURN_STATUS[0];
-                return `<div style="display:flex;gap:10px;align-items:flex-start;margin-bottom:10px;">
-                  <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0;">
-                    <div style="width:26px;height:26px;border-radius:50%;background:${chosen.color};color:white;font-size:11px;font-weight:800;display:flex;align-items:center;justify-content:center;">✓</div>
-                    ${num<totalSets?`<div style="width:2px;flex:1;min-height:10px;background:#e2e8f0;margin-top:3px;"></div>`:""}
+                return `<div style="background:${chosen.bg};border-radius:8px;padding:10px;margin-bottom:8px;border:2px solid ${chosen.color}44;">
+                  <div style="font-size:11px;font-weight:700;color:${chosen.color};margin-bottom:6px;">${chosen.icon} ${s.setNumber} — ${s.description}</div>
+                  <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:white;border-radius:6px;border:1.5px solid ${chosen.color};">
+                    <span style="font-size:12px;font-weight:700;color:${chosen.color};">${chosen.icon} ${chosen.label}</span>
+                    <button onclick="state.returnModal.conditions['${s.setNumber}']='Out';render()" style="font-size:10px;color:#64748b;background:none;border:none;cursor:pointer;text-decoration:underline;font-family:inherit;">Change</button>
                   </div>
-                  <div style="flex:1;background:${chosen.bg};border-radius:8px;padding:10px;border:2px solid ${chosen.color}55;">
-                    <div style="font-size:10px;font-weight:700;color:#94a3b8;margin-bottom:2px;">${s.setNumber} ${isPreFilled?'<span style="color:#cbd5e1;font-weight:400;">· previous status</span>':''}</div>
-                    <div style="font-size:12px;font-weight:700;color:${chosen.color};margin-bottom:6px;">${s.description||s.setNumber}</div>
-                    <div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;background:white;border-radius:6px;border:1.5px solid ${chosen.color};">
-                      <span style="font-size:12px;font-weight:700;color:${chosen.color};">${chosen.icon} ${chosen.label}</span>
-                      <button onclick="state.returnModal.conditions['${s.setNumber}']='Out';render()" style="font-size:10px;color:#64748b;background:none;border:none;cursor:pointer;text-decoration:underline;font-family:inherit;padding:0;">Change</button>
-                    </div>
-                    ${currentCond==="Quarantine"?`<div style="margin-top:8px;">
-                      <div style="font-size:10px;font-weight:700;color:#d97706;margin-bottom:3px;">🔬 Issue description *</div>
-                      <input placeholder="e.g. Scope cracked, missing part..." value="${(r.quarantineReasons&&r.quarantineReasons[s.setNumber])||""}" oninput="if(!state.returnModal.quarantineReasons)state.returnModal.quarantineReasons={};state.returnModal.quarantineReasons['${s.setNumber}']=this.value" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #fde68a;font-size:11px;box-sizing:border-box;font-family:inherit;background:#fffbeb;"/>
-                      <div style="font-size:10px;color:#d97706;margin-top:3px;">⚠️ Blocked until management clears</div>
-                    </div>`:""}
-                    ${currentCond==="Parked"?`<div style="margin-top:8px;">
-                      <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:3px;">📍 Park at which hospital?</div>
-                      <input placeholder="e.g. Hospital Putrajaya" value="${(r.parkHospitals&&r.parkHospitals[s.setNumber])||""}" oninput="if(!state.returnModal.parkHospitals)state.returnModal.parkHospitals={};state.returnModal.parkHospitals['${s.setNumber}']=this.value" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #ddd6fe;font-size:11px;box-sizing:border-box;font-family:inherit;background:#f5f3ff;"/>
-                    </div>`:""}
-                  </div>
+                  ${currentCond==="Quarantine"?`<div style="margin-top:6px;">
+                    <div style="font-size:10px;font-weight:700;color:#d97706;margin-bottom:3px;">🔬 What is the issue? *</div>
+                    <input placeholder="e.g. Scope cracked, missing part..." value="${(r.quarantineReasons&&r.quarantineReasons[s.setNumber])||""}" oninput="if(!state.returnModal.quarantineReasons)state.returnModal.quarantineReasons={};state.returnModal.quarantineReasons['${s.setNumber}']=this.value" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #fde68a;font-size:11px;box-sizing:border-box;font-family:inherit;background:#fffbeb;"/>
+                    <div style="font-size:10px;color:#d97706;margin-top:3px;">⚠️ Set will be blocked until management clears it</div>
+                  </div>`:""}
+                  ${currentCond==="Parked"?`<div style="margin-top:6px;">
+                    <div style="font-size:10px;font-weight:700;color:#475569;margin-bottom:3px;">📍 Park at which hospital?</div>
+                    <input placeholder="e.g. Hospital Putrajaya" value="${(r.parkHospitals&&r.parkHospitals[s.setNumber])||""}" oninput="if(!state.returnModal.parkHospitals)state.returnModal.parkHospitals={};state.returnModal.parkHospitals['${s.setNumber}']=this.value" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid #ddd6fe;font-size:11px;box-sizing:border-box;font-family:inherit;background:#f5f3ff;"/>
+                  </div>`:""}
                 </div>`;
               }).join("");
             })()}
-            ${!allResolved?`<div style="background:#fef2f2;border-radius:8px;padding:8px 12px;font-size:11px;color:#dc2626;font-weight:600;display:flex;align-items:center;gap:6px;"><span>⚠️</span><span>${unresolvedSets.length} set(s) still need a status above</span></div>`:
-            `<div style="background:#f0fdf4;border-radius:8px;padding:8px 12px;font-size:11px;color:#16a34a;font-weight:600;display:flex;align-items:center;gap:6px;"><span>✅</span><span>All sets assigned — ready to confirm</span></div>`}
+            ${!allResolved?`<div style="background:#fef2f2;border-radius:8px;padding:8px 12px;font-size:11px;color:#dc2626;font-weight:600;">⚠️ ${unresolvedSets.length} set(s) still need a status assigned above</div>`:""}
           </div>
 
           <!-- Return date -->
@@ -1115,11 +1116,11 @@ function render() {
           <span style="color:white;font-weight:700;font-size:14px;">📷 Photo ${idx+1} of ${photos.length}</span>
           <button onclick="closePhotoView()" style="background:rgba(255,255,255,0.15);border:none;color:white;border-radius:20px;padding:4px 12px;cursor:pointer;font-size:13px;font-weight:700;font-family:inherit;">✕ Close</button>
         </div>
-        <img src="${photoSrc(photos[idx]?.cacheKey||'')||photos[idx]?.dataUrl||''}" style="width:100%;border-radius:10px;border:2px solid rgba(255,255,255,0.2);"/>
+        <img src="${photos[idx]?.dataUrl||""}" style="width:100%;border-radius:10px;border:2px solid rgba(255,255,255,0.2);"/>
         <div style="color:rgba(255,255,255,0.6);font-size:11px;text-align:center;margin-top:8px;">${photos[idx]?.ts||""}</div>
         ${photos.length>1?`<div style="display:flex;gap:6px;margin-top:12px;justify-content:center;">
           ${photos.map((_,i)=>`<div onclick="setPhotoIdx(${i})" style="width:44px;height:44px;border-radius:6px;overflow:hidden;border:2px solid ${i===idx?"#60a5fa":"rgba(255,255,255,0.2)"};cursor:pointer;flex-shrink:0;">
-            <img src="${photoSrc(photos[i].cacheKey||'')||photos[i].dataUrl||''}" style="width:100%;height:100%;object-fit:cover;"/>
+            <img src="${photos[i].dataUrl}" style="width:100%;height:100%;object-fit:cover;"/>
           </div>`).join("")}
         </div>`:""}
       </div>
@@ -1300,13 +1301,10 @@ function render() {
 }
 
 // ── EVENT HANDLERS ───────────────────────────────────────
-function switchTab(t) { state.tab=t; state.showForm=false; state.showInvForm=false; state.selectLogMode=false; state.selectedLogs=[]; render(); }
-// Debounced search — avoids re-rendering on every keystroke with 140+ sets
-let _searchTimer = null;
-function updateSearch(v) { state.search=v; clearTimeout(_searchTimer); _searchTimer=setTimeout(render, 120); }
+function switchTab(t) { state.tab=t; state.showForm=false; state.showInvForm=false; state.selectLogMode=false; state.selectedLogs=[]; state.selectLoanMode=false; state.selectedLoans=[]; render(); }
+function updateSearch(v) { state.search=v; render(); }
 function updateFStatus(v) { state.fStatus=v; render(); }
-let _invSearchTimer = null;
-function updateInvSearch(v) { state.invSearch=v; clearTimeout(_invSearchTimer); _invSearchTimer=setTimeout(render, 120); }
+function updateInvSearch(v) { state.invSearch=v; render(); }
 function updateInvCat(v) { state.invCat=v; render(); }
 function updateInvAvail(v) { state.invAvail=v; render(); }
 function toggleForm() { state.showForm=!state.showForm; if(!state.showForm){state.editId=null;state.form=emptyForm();} render(); }
@@ -1332,17 +1330,18 @@ function toggleSetDrop(i) {
 }
 function toggleSetDropCatByKey(e,key) {
   if(e){e.stopPropagation();e.preventDefault();}
-  // Save scroll of the nearest scrollable ancestor (the set dropdown list)
-  let sc=e.target;
-  while(sc&&!(sc.scrollHeight>sc.clientHeight+2)){sc=sc.parentElement;}
-  const savedScroll=sc?sc.scrollTop:0;
+  let scrollContainer=e.target;
+  while(scrollContainer&&scrollContainer.scrollHeight<=scrollContainer.clientHeight){scrollContainer=scrollContainer.parentElement;}
+  const savedScroll=scrollContainer?scrollContainer.scrollTop:0;
   state.setDropCats=state.setDropCats||{};
   state.setDropCats[key]=!state.setDropCats[key];
   render();
-  // Restore scroll — find the open dropdown by its overflow-y:auto style
   setTimeout(()=>{
-    const el=document.querySelector('[data-dropdown-scroll="1"]');
-    if(el) el.scrollTop=savedScroll;
+    const dropdowns=document.querySelectorAll('div[style*="max-height:320px"]');
+    dropdowns.forEach(d=>{
+      const inner=d.querySelector('div[style*="overflow-y:auto"]')||d;
+      if(inner.scrollHeight>inner.clientHeight){inner.scrollTop=savedScroll;}
+    });
   },5);
 }
 function selectSet(i,setNum) {
@@ -1402,44 +1401,26 @@ function compressPhoto(file,callback) {
 function handlePhoto(event) {
   Array.from(event.target.files).forEach(file=>{
     compressPhoto(file,(dataUrl,orig,compressedKB)=>{
-      const _k = "lf_"+Date.now()+"_"+Math.random().toString(36).substr(2,4);
-      cachePhoto(_k, dataUrl);
-      state.form.photos.push({dataUrl,cacheKey:_k,name:file.name,ts:new Date().toLocaleTimeString("en-MY"),compressedKB});
+      state.form.photos.push({dataUrl,name:file.name,ts:new Date().toLocaleTimeString("en-MY"),compressedKB});
       render();
     });
   });
 }
 function removePhoto(i) { state.form.photos.splice(i,1); render(); }
 
-// doReturn pre-fill logic:
-//   "Available"              → locked ✅ (already returned good, read-only)
-//   "Out"                    → unresolved 🔴 (still genuinely out, staff must pick a status)
-//   "Quarantine"/"Repeat"/"Parked" → pre-filled with current status but still editable
-//     (covers re-opening a return to correct a previously set status)
+// FIX: doReturn now sets default to "Out" (unresolved) for all non-Available sets
 function doReturn(id) {
   reqStaffAction("📥 Returning loan — verify your identity",(staffName)=>{
     const loan=state.loans.find(l=>l.id===id);
     const conditions={};
-    const parkHospitals={};
     loan.sets.forEach(s=>{
       const inv=state.inventory.find(i=>i.setNumber===s.setNumber);
       const invAvail=inv?.availability||"Available";
-      if(invAvail==="Available"){
-        // Locked — already returned good
-        conditions[s.setNumber]="Available";
-      } else if(invAvail==="Out"){
-        // Genuinely unresolved — force staff to pick
-        conditions[s.setNumber]="Out";
-      } else {
-        // Quarantine / Repeat / Parked — pre-fill so staff can see & correct
-        conditions[s.setNumber]=invAvail;
-        if(invAvail==="Parked"&&inv?.consignmentHospital){
-          parkHospitals[s.setNumber]=inv.consignmentHospital;
-        }
-      }
+      // Already Available = lock as returned good; everything else = "Out" (unresolved, requires staff to pick)
+      conditions[s.setNumber]=invAvail==="Available"?"Available":"Out";
     });
     const today=new Date().toISOString().split("T")[0];
-    state.returnModal={loanId:id,loan,photos:[],conditions,note:"",returnDate:today,staffName,quarantineReasons:{},parkHospitals};
+    state.returnModal={loanId:id,loan,photos:[],conditions,note:"",returnDate:today,staffName,quarantineReasons:{},parkHospitals:{}};
     render();
   });
 }
@@ -1472,9 +1453,7 @@ function submitReturn() {
 function handleReturnPhoto(event) {
   Array.from(event.target.files).forEach(file=>{
     compressPhoto(file,(dataUrl,orig,compressedKB)=>{
-      const _rk = "rf_"+Date.now()+"_"+Math.random().toString(36).substr(2,4);
-      cachePhoto(_rk, dataUrl);
-      state.returnModal.photos.push({dataUrl,cacheKey:_rk,name:file.name,ts:new Date().toLocaleTimeString("en-MY"),compressedKB});
+      state.returnModal.photos.push({dataUrl,name:file.name,ts:new Date().toLocaleTimeString("en-MY"),compressedKB});
       render();
     });
   });
@@ -1528,7 +1507,8 @@ function submitModal() {
 function exportCSV() {
   const h=["Hospital","Surgeon","PIC","Out","Due","Status","Set No.","Description","Brand","S/N","Condition","Note","Photos"];
   const rows=state.loans.flatMap(l=>(l.sets||[]).map(s=>[l.hospital,l.surgeon,l.pic,l.borrowDate,l.returnDate,l.status,s.setNumber,s.description,s.brand,s.sn,s.condition,l.caseNote,(l.photos||[]).length+" photo(s)"]));
-  const csv=[h,...rows].map(r=>r.map(c=>'"'+(c||"")+'"').join(",")).join("\n");
+  const csv=[h,...rows].map(r=>r.map(c=>'"'+(c||"")+'"').join(",")).join("\
+");
   const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`SpineLoanReport_${new Date().toISOString().split("T")[0]}.csv`;a.click();
   toast("📥 Report downloaded!");
 }
@@ -1620,7 +1600,8 @@ function exportActivityCSV() {
   const actLogs=state.activityLog.filter(e=>e.action!=="Status Change");
   const h=["Date/Time","Action","Hospital","Surgeon","PIC","Sets","Set Count","Has Photo"];
   const rows=actLogs.map(e=>[e.ts,e.action,e.hospital,e.surgeon,e.surgeon,e.sets,e.count,e.hasPhoto?"Yes":"No"]);
-  const csv=[h,...rows].map(r=>r.map(c=>'"'+(c||"")+'"').join(",")).join("\n");
+  const csv=[h,...rows].map(r=>r.map(c=>'"'+(c||"")+'"').join(",")).join("\
+");
   const a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
   a.download=`ActivityLog_${new Date().toISOString().split("T")[0]}.csv`;
@@ -1631,7 +1612,8 @@ function exportRectifyCSV() {
   const rectLogs=state.activityLog.filter(e=>e.action==="Status Change");
   const h=["Date/Time","Set / Status Change","Rectified By"];
   const rows=rectLogs.map(e=>[e.ts,e.sets,e.surgeon]);
-  const csv=[h,...rows].map(r=>r.map(c=>'"'+(c||"")+'"').join(",")).join("\n");
+  const csv=[h,...rows].map(r=>r.map(c=>'"'+(c||"")+'"').join(",")).join("\
+");
   const a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
   a.download=`RectificationLog_${new Date().toISOString().split("T")[0]}.csv`;
@@ -1702,8 +1684,43 @@ async function submitChangePassword() {
   setTimeout(()=>{state.changePwModal=null;render();},2000);
 }
 
+// ── LOAN BULK SELECT / DELETE ────────────────────────────
+function toggleLoanSelectMode() { state.selectLoanMode=!state.selectLoanMode; state.selectedLoans=[]; render(); }
+function toggleSelectAllLoans() {
+  const ids=filteredLoansCache.map(l=>l.id);
+  state.selectedLoans = state.selectedLoans.length===ids.length ? [] : [...ids];
+  render();
+}
+function toggleLoanSelect(id) {
+  if(state.selectedLoans.includes(id)){ state.selectedLoans=state.selectedLoans.filter(x=>x!==id); }
+  else { state.selectedLoans.push(id); }
+  render();
+}
+async function doDeleteSelectedLoans() {
+  const ids=[...state.selectedLoans];
+  for(const id of ids){
+    const loan=state.loans.find(l=>l.id===id);
+    if(!loan) continue;
+    await sb.from("loans").delete().eq("id",id);
+    await sb.from("activity_log").insert({action:"Deleted",hospital:loan.hospital,surgeon:loan.surgeon,set_numbers:loan.sets.map(s=>s.setNumber).join(", "),set_count:loan.sets.length});
+  }
+  state.selectedLoans=[]; state.selectLoanMode=false;
+  toast(ids.length+" loan(s) deleted!");
+  await loadAll();
+}
+function reqDeleteSelectedLoans() {
+  if(state.selectedLoans.length===0){ toast("Select loans first"); return; }
+  state.modal={type:"delete",customPassword:"admin123",fn:()=>doDeleteSelectedLoans(),input:"",error:""};
+  render();
+}
+
+
 // ── INIT ─────────────────────────────────────────────────
 function acceptDisclaimer() { state.disclaimerAccepted=true;render(); }
+async function keepAlive() {
+  try { await sb.from("inventory").select("set_number").limit(1); } catch(e) {}
+}
+keepAlive();
 loadAll();
 </script>
 </body>
