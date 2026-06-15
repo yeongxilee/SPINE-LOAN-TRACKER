@@ -820,7 +820,7 @@ function render() {
       html += `<div style="background:white;border-radius:10px;padding:28px;text-align:center;color:#94a3b8;font-size:12px;">No items found.</div>`;
     } else {
       cats.forEach(cat=>{
-        const catItems=filteredInv.filter(i=>i.description===cat).sort((a,b)=>a.brand.localeCompare(b.brand)||a.setNumber.localeCompare(b.setNumber));
+        const catItems=filteredInv.filter(i=>i.description===cat).sort((a,b)=>a.brand.localeCompare(b.brand)||a.setNumber.localeCompare(b.setNumber,undefined,{numeric:true,sensitivity:"base"}));
         const isCollapsed=state.collapsedCats[cat]!==false;
         const availCount=catItems.filter(i=>(i.availability||"Available")==="Available").length;
         const outCount=catItems.filter(i=>i.availability==="Out").length;
