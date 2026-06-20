@@ -635,6 +635,7 @@ function render() {
                           <div style="flex:1;">
                             <div style="font-size:12px;font-weight:${isSelected?700:500};color:${isDisabled?"#94a3b8":isSelected?"#1d4ed8":"#1e293b"};">${x.setNumber}</div>
                             ${x.sn?`<div style="font-size:10px;color:#94a3b8;">S/N: ${x.sn}</div>`:""}
+                            ${x.remark?`<div style="font-size:10px;color:#7c3aed;">📝 ${x.remark}</div>`:""}
                           </div>
                           ${isBlocked?`<span style="font-size:10px;color:${cfg.color};font-weight:600;background:${cfg.bg};padding:1px 6px;border-radius:10px;">${cfg.icon} ${avail}</span>`:""}
                           ${alreadyPicked?`<span style="font-size:10px;color:#94a3b8;">Already added</span>`:""}
