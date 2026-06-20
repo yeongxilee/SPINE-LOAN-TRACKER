@@ -1326,6 +1326,7 @@ function toggleSetDrop(i) {
   const wasOpen=state.setDropOpen[i];
   state.setDropOpen={};
   state.setDropOpen[i]=!wasOpen;
+  state.setDropCats={}; // reset cat open state when toggling
   render();
   window.scrollTo(0,scrollY);
 }
@@ -1335,15 +1336,12 @@ function toggleSetDropCatByKey(e,key) {
   while(scrollContainer&&scrollContainer.scrollHeight<=scrollContainer.clientHeight){scrollContainer=scrollContainer.parentElement;}
   const savedScroll=scrollContainer?scrollContainer.scrollTop:0;
   state.setDropCats=state.setDropCats||{};
-  state.setDropCats[key]=!state.setDropCats[key];
+  // Only one category open at a time for faster render
+  const wasOpen=state.setDropCats[key];
+  state.setDropCats={};
+  state.setDropCats[key]=!wasOpen;
   render();
-  setTimeout(()=>{
-    const dropdowns=document.querySelectorAll('div[style*="max-height:320px"]');
-    dropdowns.forEach(d=>{
-      const inner=d.querySelector('div[style*="overflow-y:auto"]')||d;
-      if(inner.scrollHeight>inner.clientHeight){inner.scrollTop=savedScroll;}
-    });
-  },5);
+  setTimeout(()=>{ const el=document.querySelector('[data-dropdown-scroll="1"]'); if(el) el.scrollTop=savedScroll; },5);
 }
 function selectSet(i,setNum) {
   if(event){event.stopPropagation();event.preventDefault();}
@@ -1351,6 +1349,7 @@ function selectSet(i,setNum) {
   updateSet(i,"setNumber",setNum);
   state.setDropOpen=state.setDropOpen||{};
   state.setDropOpen[i]=false;
+  state.setDropCats={};
   state.setSearch=state.setSearch||{};
   state.setSearch[i]="";
   render();
