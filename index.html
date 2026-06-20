@@ -1543,8 +1543,8 @@ function quickStatus(setNum,currentStatus) {
     render();
   });
 }
-async function doQuickStatus(setNum,newStatus,hospital,since,staffName) {
-  state.parkModal=null;render();
+async function doQuickStatus(setNum,newStatus,hospital,since,staffName,currentStatus) {
+  state.parkModal=null;
   const updateData={
     availability:newStatus,
     consignment_hospital:hospital||null,
@@ -1585,7 +1585,7 @@ function submitParkModal() {
   if(!pm.newStatus){alert("Please select a status!");return;}
   if(!pm.staffName){alert("Please enter your name!");return;}
   if(pm.newStatus==="Parked"&&!pm.hospital){alert("Please enter hospital name!");return;}
-  doQuickStatus(pm.setNumber,pm.newStatus,pm.hospital,pm.since,pm.staffName);
+  doQuickStatus(pm.setNumber,pm.newStatus,pm.hospital,pm.since,pm.staffName,pm.currentStatus);
 }
 function reqMarkAvailable(setNum) {
   const inv=state.inventory.find(i=>i.setNumber===setNum);
