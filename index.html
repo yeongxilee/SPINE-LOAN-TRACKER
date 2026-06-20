@@ -375,7 +375,7 @@ async function saveInvItem(forceAvailable) {
     if (forceAvailable) {
       await sb.from("activity_log").insert({
         action:"Status Change", hospital:"-", surgeon:"Management", pic:"Management",
-        set_numbers:`${state.invEditKey} | Quarantine → 🟢 Available | S/N: ${existing?.sn||"?"} → ${f.sn} | Brand: ${f.brand} | Repaired by: Management`,
+        set_numbers:`${state.invEditKey} | Quarantine -> Available | S/N: ${existing?.sn||"?"} -> ${f.sn} | Brand: ${f.brand} | Repaired by: Management`,
         set_count:1, has_photo:false
       });
     }
@@ -1509,7 +1509,8 @@ function exportCSV() {
   const h=["Hospital","Surgeon","PIC","Out","Due","Status","Set No.","Description","Brand","S/N","Condition","Note","Photos"];
   const rows=state.loans.flatMap(l=>(l.sets||[]).map(s=>[l.hospital,l.surgeon,l.pic,l.borrowDate,l.returnDate,l.status,s.setNumber,s.description,s.brand,s.sn,s.condition,l.caseNote,(l.photos||[]).length+" photo(s)"]));
   const csv=[h,...rows].map(r=>r.map(c=>'"'+(c||"")+'"').join(",")).join("\n");
-  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));a.download=`SpineLoanReport_${new Date().toISOString().split("T")[0]}.csv`;a.click();
+  const BOM="﻿";
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([BOM+csv],{type:"text/csv;charset=utf-8"}));a.download=`SpineLoanReport_${new Date().toISOString().split("T")[0]}.csv`;a.click();
   toast("📥 Report downloaded!");
 }
 
@@ -1567,7 +1568,7 @@ async function doQuickStatus(setNum,newStatus,hospital,since,staffName) {
     hospital:newStatus==="Parked"?(hospital||"-"):"-",
     surgeon:staffName||"Unknown",
     pic:staffName||"Unknown",
-    set_numbers:`${setNum} | ${currentStatus||"?"} → ${label}${noteText} | By: ${staffName||"Unknown"}`,
+    set_numbers:`${setNum} | ${currentStatus||"?"} -> ${newStatus}${noteText} | By: ${staffName||"Unknown"}`,
     set_count:1,has_photo:false
   });
   toast(setNum+" → "+label+(hospital?" @ "+hospital:"")+(staffName?" by "+staffName:""));
@@ -1601,8 +1602,9 @@ function exportActivityCSV() {
   const h=["Date/Time","Action","Hospital","Surgeon","PIC","Sets","Set Count","Has Photo"];
   const rows=actLogs.map(e=>[e.ts,e.action,e.hospital,e.surgeon,e.pic||"-",e.sets,e.count,e.hasPhoto?"Yes":"No"]);
   const csv=[h,...rows].map(r=>r.map(c=>'"'+(c||"")+'"').join(",")).join("\n");
+  const BOM="﻿";
   const a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.href=URL.createObjectURL(new Blob([BOM+csv],{type:"text/csv;charset=utf-8"}));
   a.download=`ActivityLog_${new Date().toISOString().split("T")[0]}.csv`;
   a.click();toast("📥 Activity log exported!");
 }
@@ -1611,9 +1613,10 @@ function exportRectifyCSV() {
   const rectLogs=state.activityLog.filter(e=>e.action==="Status Change");
   const h=["Date/Time","Details","Rectified By","Hospital"];
   const rows=rectLogs.map(e=>[e.ts,e.sets,e.surgeon,e.hospital]);
-  const csv=[h,...rows].map(r=>r.map(c=>'"'+(c||"")+'"').join(",")).join("\n");
+  const csv=[h,...rows].map(r=>r.map(v=>'"'+(v||"")+'"').join(",")).join("\n");
+  const BOM="﻿";
   const a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.href=URL.createObjectURL(new Blob([BOM+csv],{type:"text/csv;charset=utf-8"}));
   a.download=`RectificationLog_${new Date().toISOString().split("T")[0]}.csv`;
   a.click();toast("📥 Rectification log exported!");
 }
