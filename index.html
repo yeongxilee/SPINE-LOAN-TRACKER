@@ -298,6 +298,7 @@ async function returnLoan(id, returnPhotos, conditions, returnNote, returnParkHo
 
   await sb.from("activity_log").insert({
     action:"Returned", hospital:loan.hospital, surgeon:loan.surgeon,
+    pic:state.returnModal?.staffName||"-",
     set_numbers:loan.sets.map(s=>s.setNumber).join(", "),
     set_count:loan.sets.length, has_photo:(returnPhotos||[]).length>0
   });
@@ -326,10 +327,10 @@ async function returnLoan(id, returnPhotos, conditions, returnNote, returnParkHo
   await loadAll();
 }
 
-async function deleteLoan(id) {
+async function deleteLoan(id, staffName) {
   const loan = state.loans.find(l=>l.id===id);
   await sb.from("loans").delete().eq("id",id);
-  await sb.from("activity_log").insert({ action:"Deleted", hospital:loan.hospital, surgeon:loan.surgeon, set_numbers:loan.sets.map(s=>s.setNumber).join(", "), set_count:loan.sets.length });
+  await sb.from("activity_log").insert({ action:"Deleted", hospital:loan.hospital, surgeon:loan.surgeon, pic:staffName||"-", set_numbers:loan.sets.map(s=>s.setNumber).join(", "), set_count:loan.sets.length });
   const msg3 = `🦴 *SPINE LOAN TRACKER*\
 🗑️ *Loan Record Deleted*\
 \
@@ -1460,7 +1461,7 @@ function handleReturnPhoto(event) {
 }
 function removeReturnPhoto(i) { state.returnModal.photos.splice(i,1); render(); }
 
-function reqDelete(id) { state.modal={type:"delete",fn:()=>deleteLoan(id),input:"",error:"",customPassword:"admin123"}; render(); }
+function reqDelete(id) { reqStaffAction("🗑️ Deleting loan — verify your identity",(staffName)=>{ state.modal={type:"delete",fn:()=>deleteLoan(id,staffName),input:"",error:"",customPassword:"admin123"}; render(); }); }
 function editLoan(id) {
   const l=state.loans.find(x=>x.id===id);
   state.form={...l,photos:l.photos||[]};
@@ -1598,7 +1599,7 @@ function reqMarkAvailable(setNum) {
 function exportActivityCSV() {
   const actLogs=state.activityLog.filter(e=>e.action!=="Status Change");
   const h=["Date/Time","Action","Hospital","Surgeon","PIC","Sets","Set Count","Has Photo"];
-  const rows=actLogs.map(e=>[e.ts,e.action,e.hospital,e.surgeon,e.surgeon,e.sets,e.count,e.hasPhoto?"Yes":"No"]);
+  const rows=actLogs.map(e=>[e.ts,e.action,e.hospital,e.surgeon,e.pic||"-",e.sets,e.count,e.hasPhoto?"Yes":"No"]);
   const csv=[h,...rows].map(r=>r.map(c=>'"'+(c||"")+'"').join(",")).join("\n");
   const a=document.createElement("a");
   a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
