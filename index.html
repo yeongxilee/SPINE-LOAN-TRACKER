@@ -159,7 +159,7 @@ async function loadAll() {
   const [inv, loans, log] = await Promise.all([
     sb.from("inventory").select("*").order("description"),
     sb.from("loans").select("*, loan_sets(*), loan_photos(*)").order("created_at", {ascending:false}),
-    sb.from("activity_log").select("*").order("created_at", {ascending:false}).limit(50),
+    sb.from("activity_log").select("*").order("created_at", {ascending:false}).limit(200),
   ]);
   state.inventory = (inv.data||[]).map(i=>({
     setNumber:i.set_number, description:i.description, brand:i.brand, sn:i.sn||"",
