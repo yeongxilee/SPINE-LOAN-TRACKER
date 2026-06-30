@@ -1378,32 +1378,85 @@ function saveLoanForm() {
   saveLoan();
 }
 
-function compressPhoto(file,callback) {
-  const MAX_WIDTH=1024,MAX_HEIGHT=1024,QUALITY=0.7;
+function compressPhoto(file,callback,onError) {
+  const MAX_WIDTH=900,MAX_HEIGHT=900,QUALITY=0.6;
+  const TIMEOUT_MS=15000;
+  let settled=false;
+  const safeFail=(reason)=>{
+    if(settled)return; settled=true;
+    console.log("Photo processing failed:",reason);
+    if(onError) onError(reason);
+  };
+  const safeOk=(...args)=>{
+    if(settled)return; settled=true;
+    callback(...args);
+  };
+  const timer=setTimeout(()=>safeFail("timeout — photo took too long to process"),TIMEOUT_MS);
+
+  // Basic file checks up front
+  if(!file||!file.type||!file.type.startsWith("image/")){
+    clearTimeout(timer);
+    safeFail("unsupported file type ("+(file&&file.type||"unknown")+")");
+    return;
+  }
+  if(file.size>30*1024*1024){ // 30MB sanity cap before even trying
+    clearTimeout(timer);
+    safeFail("file too large ("+Math.round(file.size/1024/1024)+"MB)");
+    return;
+  }
+
   const reader=new FileReader();
+  reader.onerror=()=>{ clearTimeout(timer); safeFail("could not read file (FileReader error)"); };
   reader.onload=ev=>{
     const img=new Image();
+    img.onerror=()=>{ clearTimeout(timer); safeFail("could not decode image (possibly HEIC/unsupported format)"); };
     img.onload=()=>{
-      let w=img.width,h=img.height;
-      if(w>MAX_WIDTH){h=Math.round(h*MAX_WIDTH/w);w=MAX_WIDTH;}
-      if(h>MAX_HEIGHT){w=Math.round(w*MAX_HEIGHT/h);h=MAX_HEIGHT;}
-      const canvas=document.createElement("canvas");
-      canvas.width=w;canvas.height=h;
-      canvas.getContext("2d").drawImage(img,0,0,w,h);
-      const compressed=canvas.toDataURL("image/jpeg",QUALITY);
-      const compressedKB=Math.round(compressed.length*0.75/1024);
-      callback(compressed,Math.round(file.size/1024),compressedKB);
+      try{
+        let w=img.width,h=img.height;
+        if(!w||!h){ clearTimeout(timer); safeFail("image has no dimensions"); return; }
+        if(w>MAX_WIDTH){h=Math.round(h*MAX_WIDTH/w);w=MAX_WIDTH;}
+        if(h>MAX_HEIGHT){w=Math.round(w*MAX_HEIGHT/h);h=MAX_HEIGHT;}
+        const canvas=document.createElement("canvas");
+        canvas.width=w;canvas.height=h;
+        const ctx=canvas.getContext("2d");
+        if(!ctx){ clearTimeout(timer); safeFail("canvas context unavailable"); return; }
+        ctx.drawImage(img,0,0,w,h);
+        let compressed;
+        try{
+          compressed=canvas.toDataURL("image/jpeg",QUALITY);
+        }catch(e){
+          clearTimeout(timer); safeFail("canvas export failed: "+e.message); return;
+        }
+        if(!compressed||compressed.length<100){
+          clearTimeout(timer); safeFail("compressed image is empty"); return;
+        }
+        const compressedKB=Math.round(compressed.length*0.75/1024);
+        clearTimeout(timer);
+        safeOk(compressed,Math.round(file.size/1024),compressedKB);
+      }catch(e){
+        clearTimeout(timer); safeFail("unexpected error: "+e.message);
+      }
     };
     img.src=ev.target.result;
   };
-  reader.readAsDataURL(file);
+  try{
+    reader.readAsDataURL(file);
+  }catch(e){
+    clearTimeout(timer); safeFail("readAsDataURL threw: "+e.message);
+  }
 }
 
 function handlePhoto(event) {
-  Array.from(event.target.files).forEach(file=>{
+  const files=Array.from(event.target.files);
+  event.target.value="";
+  if(files.length===0)return;
+  toast("⏳ Processing "+files.length+" photo(s)...");
+  files.forEach(file=>{
     compressPhoto(file,(dataUrl,orig,compressedKB)=>{
       state.form.photos.push({dataUrl,name:file.name,ts:new Date().toLocaleTimeString("en-MY"),compressedKB});
       render();
+    },(reason)=>{
+      toast("⚠️ Photo failed ("+(file.name||"photo")+"): "+reason);
     });
   });
 }
@@ -1452,10 +1505,16 @@ function submitReturn() {
 }
 
 function handleReturnPhoto(event) {
-  Array.from(event.target.files).forEach(file=>{
+  const files=Array.from(event.target.files);
+  event.target.value="";
+  if(files.length===0)return;
+  toast("⏳ Processing "+files.length+" photo(s)...");
+  files.forEach(file=>{
     compressPhoto(file,(dataUrl,orig,compressedKB)=>{
       state.returnModal.photos.push({dataUrl,name:file.name,ts:new Date().toLocaleTimeString("en-MY"),compressedKB});
       render();
+    },(reason)=>{
+      toast("⚠️ Photo failed ("+(file.name||"photo")+"): "+reason);
     });
   });
 }
