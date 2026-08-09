@@ -156,11 +156,18 @@ function toast(msg) {
 async function loadAll() {
   const { data: staffData } = await sb.from("staff").select("*").eq("active", true).order("name");
   state.staff = staffData || [];
-  const [inv, loans, log] = await Promise.all([
+  const [inv, loansRaw, loanSetsRaw, loanPhotosRaw, log] = await Promise.all([
     sb.from("inventory").select("*").order("description"),
-    sb.from("loans").select("*, loan_sets(*), loan_photos(*)").order("created_at", {ascending:false}),
+    sb.from("loans").select("*").order("created_at", {ascending:false}),
+    sb.from("loan_sets").select("*"),
+    sb.from("loan_photos").select("*"),
     sb.from("activity_log").select("*").order("created_at", {ascending:false}).limit(200),
   ]);
+  const loans = { data: (loansRaw.data||[]).map(l => ({
+    ...l,
+    loan_sets: (loanSetsRaw.data||[]).filter(s => s.loan_id === l.id),
+    loan_photos: (loanPhotosRaw.data||[]).filter(p => p.loan_id === l.id)
+  }))};
   state.inventory = (inv.data||[]).map(i=>({
     setNumber:i.set_number, description:i.description, brand:i.brand, sn:i.sn||"",
     location:i.location||"", remark:i.remark||"", dbId:i.id,
