@@ -35,10 +35,13 @@
     </div>
     
     <div class="nav-tabs">
-        <div class="nav-tab active" onclick="switchTab('loans')">Loans</div>
-        <div class="nav-tab" onclick="switchTab('dashboard')">Dashboard</div>
-        <div class="nav-tab" onclick="switchTab('activity')">Activity</div>
-    </div>
+       <div class="nav-tabs">
+    <div class="nav-tab active" onclick="switchTab('loans')">Loans</div>
+    <div class="nav-tab" onclick="switchTab('inventory')">Inventory</div>
+    <div class="nav-tab" onclick="switchTab('dashboard')">Dashboard</div>
+    <div class="nav-tab" onclick="switchTab('activity')">Activity</div>
+    <div class="nav-tab" onclick="switchTab('rectify')">Rectify</div>
+</div>
     
     <div class="container">
         <div id="loans" class="content active">
@@ -52,10 +55,15 @@
             <div id="dashboardContainer" class="loading">Loading dashboard...</div>
         </div>
         
-        <div id="activity" class="content">
-            <h2>Activity</h2>
-            <div id="activityContainer" class="empty">Activity log coming soon</div>
-        </div>
+    <div id="inventory" class="content">
+    <h2>Inventory</h2>
+    <div class="empty">Inventory management coming soon</div>
+</div>
+
+<div id="rectify" class="content">
+    <h2>Rectify</h2>
+    <div class="empty">Rectification log coming soon</div>
+</div>
     </div>
 
     <script>
