@@ -196,9 +196,7 @@ async function saveLoan() {
   if (!valid.length||!state.form.hospital||!state.form.surgeon||!state.form.borrowDate) {
     toast("Fill: Hospital, Surgeon, Date & at least 1 set"); state.saving=false; render(); return;
   }
-  if (!state.editId && (!state.form.photos || state.form.photos.length === 0)) {
-    toast("📷 Photo evidence is required!"); state.saving=false; render(); return;
-  }
+
   const setNums = valid.map(s=>s.setNumber);
   const uniqueNums = [...new Set(setNums)];
   if (setNums.length !== uniqueNums.length) {
@@ -1375,7 +1373,6 @@ function saveLoanForm() {
   if(!state.editId) {
     const valid=state.form.sets.filter(s=>s.setNumber);
     if(!valid.length||!state.form.hospital||!state.form.surgeon||!state.form.borrowDate){toast("Fill: Hospital, Surgeon, Date & at least 1 set");return;}
-    if(!state.form.photos||state.form.photos.length===0){toast("📷 Photo evidence is required!");return;}
     reqStaffAction("📤 Sending out loan — verify your identity",(staffName)=>{
       state.form.pic=staffName;
       saveLoan();
