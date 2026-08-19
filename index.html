@@ -49,7 +49,7 @@
 const SUPABASE_URL = "https://solrhwifqlmtwgyekuok.supabase.co";
 const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNvbHJod2lmcWxtdHdneWVrdW9rIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg4MTA4MDAsImV4cCI6MjA5NDM4NjgwMH0.u3L_a8IxqiBIBaiLziyK2I6-UwW9v9ftUjoSgis0cSU";
 const INVENTORY_PIN   = "1234";
-const DELETE_PASSWORD = "admin123"; // FIX: was "1234", misleading — now matches customPassword usage
+const DELETE_PASSWORD = "admin2020";
 
 // ── WHATSAPP NOTIFICATION (Fonnte) ──────────────────────
 const FONNTE_TOKEN = "mgiDzDB42vySC7bri6p7";
@@ -1520,7 +1520,7 @@ function handleReturnPhoto(event) {
 }
 function removeReturnPhoto(i) { state.returnModal.photos.splice(i,1); render(); }
 
-function reqDelete(id) { reqStaffAction("🗑️ Deleting loan — verify your identity",(staffName)=>{ state.modal={type:"delete",fn:()=>deleteLoan(id,staffName),input:"",error:"",customPassword:"admin123"}; render(); }); }
+function reqDelete(id) { reqStaffAction("🗑️ Deleting loan — verify your identity",(staffName)=>{ state.modal={type:"delete",fn:()=>deleteLoan(id,staffName),input:"",error:"",customPassword:"admin2020"}; render(); }); }
 function editLoan(id) {
   const l=state.loans.find(x=>x.id===id);
   state.form={...l,photos:l.photos||[]};
@@ -1542,7 +1542,7 @@ function reqEditInv(setNum) {
   const fn=()=>{const item=state.inventory.find(i=>i.setNumber===setNum);state.invForm={...item,availability:item.availability||"Available",consignmentHospital:item.consignmentHospital||"",consignmentSince:item.consignmentSince||""};state.invEditKey=setNum;state.showInvForm=true;render();};
   if(state.invUnlocked)fn();else{state.modal={type:"pin",fn,input:"",error:""};render();}
 }
-function reqDeleteInv(setNum) { state.modal={type:"delete",customPassword:"admin123",fn:()=>deleteInvItem(setNum),input:"",error:""};render(); }
+function reqDeleteInv(setNum) { state.modal={type:"delete",customPassword:"admin2020",fn:()=>deleteInvItem(setNum),input:"",error:""};render(); }
 function saveInv() { saveInvItem(undefined); }
 function saveInvAsAvailable() { saveInvItem(true); }
 function saveInvKeepQuarantine() { saveInvItem(false); }
@@ -1594,7 +1594,7 @@ async function doDeleteSelectedLogs() {
   state.selectedLogs=[];state.selectLogMode=false;
   toast(`🗑️ ${ids.length} log entries deleted!`);render();
 }
-function reqDeleteSelectedLogs() { state.modal={type:"delete",customPassword:"admin123",fn:()=>doDeleteSelectedLogs(),input:"",error:""};render(); }
+function reqDeleteSelectedLogs() { state.modal={type:"delete",customPassword:"admin2020",fn:()=>doDeleteSelectedLogs(),input:"",error:""};render(); }
 
 function quickStatus(setNum,currentStatus) {
   reqStaffAction("🔄 Changing set status — verify your identity",(staffName)=>{
@@ -1770,7 +1770,7 @@ async function doDeleteSelectedLoans() {
 }
 function reqDeleteSelectedLoans() {
   if(state.selectedLoans.length===0){ toast("Select loans first"); return; }
-  state.modal={type:"delete",customPassword:"admin123",fn:()=>doDeleteSelectedLoans(),input:"",error:""};
+  state.modal={type:"delete",customPassword:"admin2020",fn:()=>doDeleteSelectedLoans(),input:"",error:""};
   render();
 }
 
