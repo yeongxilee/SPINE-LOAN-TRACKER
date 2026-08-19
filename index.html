@@ -1485,10 +1485,6 @@ function doReturn(id) {
 
 function submitReturn() {
   const r=state.returnModal;
-  if(!r.photos||r.photos.length===0){
-    toast("📷 Photo required before confirming!");
-    return;
-  }
   // Validate all non-locked sets have a resolved status
   const unresolved=r.loan.sets.filter(s=>{
     const inv=state.inventory.find(i=>i.setNumber===s.setNumber);
