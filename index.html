@@ -673,10 +673,10 @@ function render() {
           </div>`).join("")}
         </div>
         ${(()=>{
-          const noPhoto=!state.editId&&f.photos.length===0;
-          const btnColor=state.saving||noPhoto?"#94a3b8":"#1d4ed8";
-          const btnText=state.saving?`<span class="spinner"></span>`:state.editId?"Update Loan":noPhoto?"📷 Add Photo First — Required":`Save Loan (${f.sets.filter(s=>s.setNumber).length} sets, ${f.photos.length} photo(s))`;
-          return `<button onclick="saveLoanForm()" style="${B(btnColor,"white","width:100%;padding:11px;font-size:13px;")}" ${state.saving||noPhoto?"disabled":""}>
+          const noPhoto=false; // Photo is now optional
+          const btnColor=state.saving?"#94a3b8":"#1d4ed8";
+          const btnText=state.saving?`<span class="spinner"></span>`:state.editId?"Update Loan":`Save Loan (${f.sets.filter(s=>s.setNumber).length} sets, ${f.photos.length} photo(s) optional)`;
+          return `<button onclick="saveLoanForm()" style="${B(btnColor,"white","width:100%;padding:11px;font-size:13px;")}" ${state.saving?"disabled":""}>
             ${btnText}
           </button>`;
         })()}
