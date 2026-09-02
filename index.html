@@ -1621,6 +1621,12 @@ function quickStatus(setNum,currentStatus) {
   });
 }
 async function doQuickStatus(setNum,newStatus,hospital,since,staffName,currentStatus) {
+  // Only admins (Alvin & Aida) can make status changes
+  const staffMember=state.staff.find(s=>s.name===staffName);
+  if(!staffMember||staffMember.role!=="admin"){
+    toast("⛔ Only admins can make rectifications/status changes");
+    return;
+  }
   state.parkModal=null;
   const updateData={
     availability:newStatus,
