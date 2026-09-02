@@ -819,6 +819,7 @@ function render() {
 
     html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
       <div style="font-size:11px;color:#64748b;font-weight:600;">Showing ${filteredInv.length} of ${state.inventory.length} items</div>
+      <button onclick="exportInventoryCSV()" style="padding:5px 12px;border-radius:20px;border:1px solid #1d4ed8;background:#eff6ff;color:#1d4ed8;font-size:11px;font-weight:600;cursor:pointer;font-family:inherit;">📥 Export Excel</button>
       ${state.invUnlocked?`<button onclick="lockInv()" style="background:#fef2f2;color:#dc2626;border:none;border-radius:6px;padding:3px 10px;font-size:11px;cursor:pointer;font-weight:700;font-family:inherit;">🔒 Lock</button>`:`<div style="font-size:10px;color:#94a3b8;">🔒 Locked — view only</div>`}
     </div>`;
 
@@ -1571,6 +1572,23 @@ function exportCSV() {
   const BOM="﻿";
   const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([BOM+csv],{type:"text/csv;charset=utf-8"}));a.download=`SpineLoanReport_${new Date().toISOString().split("T")[0]}.csv`;a.click();
   toast("📥 Report downloaded!");
+}
+
+function exportInventoryCSV() {
+  const h=["Set Number","Description","Brand","Serial Number","Condition","Availability","Total Sets","Available","Out","Quarantine","Parked","Repeat"];
+  const rows=state.inventory.map(inv=>{
+    const status=inv.availability||"Available";
+    const outCount=state.loans.flatMap(l=>l.sets||[]).filter(s=>s.setNumber===inv.setNumber&&s.condition==="Out").length;
+    const quarCount=state.loans.flatMap(l=>l.sets||[]).filter(s=>s.setNumber===inv.setNumber&&s.condition==="Quarantine").length;
+    const parkedCount=state.loans.flatMap(l=>l.sets||[]).filter(s=>s.setNumber===inv.setNumber&&s.condition==="Parked").length;
+    const repeatCount=state.loans.flatMap(l=>l.sets||[]).filter(s=>s.setNumber===inv.setNumber&&s.condition==="Repeat").length;
+    const availCount=(inv.setCount||0)-(outCount+quarCount+parkedCount+repeatCount);
+    return [inv.setNumber,inv.description,inv.brand,inv.sn,inv.condition,status,inv.setCount||0,availCount,outCount,quarCount,parkedCount,repeatCount];
+  });
+  const csv=[h,...rows].map(r=>r.map(c=>'"'+(c||"")+'"').join(",")).join("\n");
+  const BOM="﻿";
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([BOM+csv],{type:"text/csv;charset=utf-8"}));a.download=`Inventory_${new Date().toISOString().split("T")[0]}.csv`;a.click();
+  toast("📥 Inventory exported to Excel!");
 }
 
 function toggleLogSelectMode() { state.selectLogMode=!state.selectLogMode;state.selectedLogs=[];render(); }
