@@ -882,7 +882,7 @@ function render() {
             let _outTag="";
             if(itemAvail==="Out"){
               const _ol=state.loans.find(l=>l.status!=="Returned"&&(l.sets||[]).some(x=>x.setNumber===item.setNumber));
-              if(_ol){ _outTag='<div style="font-size:11px;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:8px;padding:4px 8px;margin:2px 0 4px;font-weight:700;">\u{1F3E5} '+_ol.hospital+' \u00B7 '+(_ol.surgeon||"-")+' \u00B7 '+(_ol.borrowDate||"")+'</div>'; }
+              if(_ol){ _outTag='<div style="font-size:11px;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:8px;padding:4px 8px;margin:2px 0 4px;font-weight:700;">\u{1F3E5} '+_ol.hospital+' \u00B7 '+(_ol.surgeon||"-")+' \u00B7 '+(_ol.borrowDate?_ol.borrowDate.slice(0,10).split("-").reverse().join("/"):"")+'</div>'; }
               else { _outTag='<div style="font-size:11px;color:#94a3b8;margin:2px 0 4px;">Out \u2013 not on any open loan</div>'; }
             }
             html += `<div style="background:white;padding:10px 12px;border-left:4px solid ${itemCfg.color};${idx<catItems.length-1?"border-bottom:1px solid #f1f5f9;":""}">
