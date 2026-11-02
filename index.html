@@ -176,7 +176,7 @@ async function loadAll() {
     fetchAll("loans", "created_at", false),
     fetchAll("loan_sets"),
     fetchAll("loan_photos"),
-    sb.from("activity_log").select("*").order("created_at", {ascending:false}).limit(200),
+    sb.from("activity_log").select("*").order("created_at", {ascending:false}).limit(1000),
   ]);
   const loans = { data: (loansRaw.data||[]).map(l => ({
     ...l,
