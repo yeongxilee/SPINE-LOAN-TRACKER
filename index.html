@@ -221,6 +221,16 @@ async function saveLoan() {
     toast("⚠️ Sets not in inventory: "+missingFromInv.join(", "));
     state.saving=false; render(); return;
   }
+  let _removed = [], _added = [];
+  if (state.editId) {
+    const _orig = state.loans.find(x=>x.id===state.editId);
+    const _oldNums = (_orig&&_orig.sets||[]).map(x=>x.setNumber);
+    _removed = _oldNums.filter(n=>!setNums.includes(n));
+    _added = setNums.filter(n=>!_oldNums.includes(n));
+    if (_removed.length && !confirm("You are REMOVING these sets from this loan:\n\n"+_removed.join("\n")+"\n\nThey will be set back to Available (returned to stock). If they are still at the hospital, press Cancel and keep them on the loan.\n\nContinue?")) {
+      state.saving=false; render(); return;
+    }
+  }
   try {
     let loanId = state.editId;
     if (state.editId) {
@@ -238,6 +248,8 @@ async function saveLoan() {
     if (!state.editId) {
       await Promise.all(valid.map(s => sb.from("inventory").update({availability:"Out"}).eq("set_number", s.setNumber)));
     }
+    if (_added.length) await Promise.all(_added.map(n => sb.from("inventory").update({availability:"Out"}).eq("set_number", n)));
+    if (_removed.length) await Promise.all(_removed.map(n => sb.from("inventory").update({availability:"Available", consignment_hospital:null, consignment_since:null}).eq("set_number", n)));
     toast(state.editId?"✅ Loan updated!":"✅ Loan saved!");
     const f2 = state.form;
     const setList = valid.map(s=>s.setNumber).join(", ");
