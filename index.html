@@ -879,6 +879,12 @@ function render() {
           catItems.forEach((item,idx)=>{
             const itemAvail=item.availability||"Available";
             const itemCfg=AVAIL[itemAvail]||AVAIL["Available"];
+            let _outTag="";
+            if(itemAvail==="Out"){
+              const _ol=state.loans.find(l=>l.status!=="Returned"&&(l.sets||[]).some(x=>x.setNumber===item.setNumber));
+              if(_ol){ _outTag='<div style="font-size:11px;background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:8px;padding:4px 8px;margin:2px 0 4px;font-weight:700;">\u{1F3E5} '+_ol.hospital+' \u00B7 '+(_ol.surgeon||"-")+' \u00B7 '+(_ol.borrowDate||"")+'</div>'; }
+              else { _outTag='<div style="font-size:11px;color:#94a3b8;margin:2px 0 4px;">Out \u2013 not on any open loan</div>'; }
+            }
             html += `<div style="background:white;padding:10px 12px;border-left:4px solid ${itemCfg.color};${idx<catItems.length-1?"border-bottom:1px solid #f1f5f9;":""}">
               <div style="display:flex;justify-content:space-between;align-items:flex-start;">
                 <div style="flex:1;">
@@ -888,6 +894,7 @@ function render() {
                     <span style="font-size:11px;background:${itemCfg.bg};color:${itemCfg.color};padding:3px 10px;border-radius:20px;font-weight:800;border:1.5px solid ${itemCfg.color}44;">${itemCfg.icon} ${itemCfg.label}</span>
                     ${item.consignmentHospital?`<span style="font-size:10px;background:#f5f3ff;color:#7c3aed;padding:1px 6px;border-radius:20px;">📍 ${item.consignmentHospital}</span>`:""}
                   </div>
+                  ${_outTag}
                   <div style="font-size:11px;color:#94a3b8;display:flex;gap:10px;flex-wrap:wrap;margin-bottom:6px;">
                     ${item.sn?`<span>🔖 ${item.sn}</span>`:""}
                     ${item.location&&!item.consignmentHospital?`<span>📍 ${item.location}</span>`:""}
