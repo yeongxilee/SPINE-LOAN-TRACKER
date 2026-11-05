@@ -156,14 +156,14 @@ function toast(msg) {
 async function loadAll() {
   const { data: staffData } = await sb.from("staff").select("*").eq("active", true).order("name");
   state.staff = staffData || [];
-  const fetchAll = async (table, col, asc) => {
+  const fetchAll = async (table, col, asc, cols) => {
     let all = [], from = 0;
     while (true) {
-      let q = sb.from(table).select("*");
+      let q = sb.from(table).select(cols||"*");
       if (col) q = q.order(col, {ascending:asc!==false});
       q = q.order("id", {ascending:true}).range(from, from+999);
       let r = await q;
-      if (r.error) r = await sb.from(table).select("*").range(from, from+999);
+      if (r.error) r = await sb.from(table).select(cols||"*").range(from, from+999);
       if (r.error || !r.data) break;
       all = all.concat(r.data);
       if (r.data.length < 1000) break;
@@ -175,9 +175,20 @@ async function loadAll() {
     fetchAll("inventory", "description", true),
     fetchAll("loans", "created_at", false),
     fetchAll("loan_sets"),
-    fetchAll("loan_photos"),
+    fetchAll("loan_photos", null, true, "id,loan_id,taken_at"),
     sb.from("activity_log").select("*").order("created_at", {ascending:false}).limit(1000),
   ]);
+  window._photoCache = window._photoCache || {};
+  const _need = (loanPhotosRaw.data||[]).filter(p => !window._photoCache[p.id]).map(p => p.id);
+  const _chunks = [];
+  for (let i = 0; i < _need.length; i += 15) _chunks.push(_need.slice(i, i+15));
+  for (let i = 0; i < _chunks.length; i += 4) {
+    await Promise.all(_chunks.slice(i, i+4).map(async ch => {
+      const r = await sb.from("loan_photos").select("*").in("id", ch);
+      (r.data||[]).forEach(p => { window._photoCache[p.id] = p; });
+    }));
+  }
+  loanPhotosRaw.data = (loanPhotosRaw.data||[]).map(p => window._photoCache[p.id]).filter(Boolean);
   const loans = { data: (loansRaw.data||[]).map(l => ({
     ...l,
     loan_sets: (loanSetsRaw.data||[]).filter(s => s.loan_id === l.id),
@@ -277,7 +288,7 @@ async function saveLoan() {
 📦 Sets: ${setList}`;
       sendWhatsApp(msg);
     }
-    state.showForm=false; state.editId=null; state.form=emptyForm();
+    state.showForm=false; state.editId=null; state.form=emptyForm(); state.saving=false;
     await loadAll();
   } catch(e) { toast("❌ Error saving: "+e.message); state.saving=false; render(); }
 }
