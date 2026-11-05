@@ -226,8 +226,7 @@ async function saveLoan() {
   }
   let _removed = [], _added = [];
   if (state.editId) {
-    const _orig = state.loans.find(x=>x.id===state.editId);
-    const _oldNums = (_orig&&_orig.sets||[]).map(x=>x.setNumber);
+    const _oldNums = (state.editOrigSets||[]).slice();
     _removed = _oldNums.filter(n=>!setNums.includes(n));
     _added = setNums.filter(n=>!_oldNums.includes(n));
     if (_removed.length && !confirm("You are REMOVING these sets from this loan:\n\n"+_removed.join("\n")+"\n\nThey will be set back to Available (returned to stock). If they are still at the hospital, press Cancel and keep them on the loan.\n\nContinue?")) {
@@ -1558,7 +1557,8 @@ function removeReturnPhoto(i) { state.returnModal.photos.splice(i,1); render(); 
 function reqDelete(id) { reqStaffAction("🗑️ Deleting loan — verify your identity",(staffName)=>{ state.modal={type:"delete",fn:()=>deleteLoan(id,staffName),input:"",error:"",customPassword:"admin2020"}; render(); }); }
 function editLoan(id) {
   const l=state.loans.find(x=>x.id===id);
-  state.form={...l,photos:l.photos||[]};
+  state.form={...l,sets:(l.sets||[]).map(x=>({...x})),photos:(l.photos||[]).slice()};
+  state.editOrigSets=(l.sets||[]).map(x=>x.setNumber);
   state.editId=id;state.showForm=true;state.tab="loans";
   render();const _a=document.getElementById("app");if(_a)_a.scrollTop=0;
 }
